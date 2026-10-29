@@ -8,8 +8,10 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 
+const annotate = (level, msg) => console.log(`::${level}::${String(msg).replace(/\r?\n/g, ' | ')}`);
+process.on('unhandledRejection', (e) => { annotate('error', `smoke crashed: ${e?.stack ?? e}`); process.exit(1); });
 const fail = async (msg) => {
-  console.error('FAIL:', msg, errors.length ? `\nPage errors:\n${errors.join('\n')}` : '');
+  annotate('error', `${msg}${errors.length ? ' -- page errors: ' + errors.join(' || ') : ''}`);
   await browser.close();
   process.exit(1);
 };
@@ -17,7 +19,7 @@ const check = (cond, msg) => (cond ? console.log('ok -', msg) : fail(msg));
 
 await page.goto(url);
 await page.waitForSelector('#ed1 .nrte__content', { timeout: 15000 }).catch(() => fail('editor not rendered'));
-console.log('Angular', await page.textContent('#ng-version'));
+annotate('notice', `Angular ${await page.textContent('#ng-version')}`);
 
 const ed1 = page.locator('#ed1 .nrte__content');
 const initial = await ed1.innerHTML();
@@ -61,4 +63,4 @@ console.log('ok - FormControl is updated');
 
 await check(errors.length === 0, `no console errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 await browser.close();
-console.log('All smoke tests passed');
+annotate('notice', 'All smoke tests passed');
