@@ -15,6 +15,7 @@ npm install @biliboobrian/ngx-rich-text-editor
 ```
 
 Requires Angular **19+** (`@angular/core`, `@angular/common`, `@angular/forms`).
+Every push is tested in CI against Angular 19, 20 and the latest release (build + browser smoke test).
 
 ## Usage
 
