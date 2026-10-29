@@ -46,7 +46,14 @@ export type RteCommand =
 export type RteToolbarItem = RteCommand | '|';
 
 /** Texts of the editor: command tooltips plus the color palette buttons. */
-export type RteLabelKey = RteCommand | 'colorNone' | 'colorCustom' | 'scopeCell' | 'scopeRow' | 'scopeColumn';
+export type RteLabelKey =
+  | RteCommand
+  | 'colorNone'
+  | 'colorCustom'
+  | 'scopeSelection'
+  | 'scopeCell'
+  | 'scopeRow'
+  | 'scopeColumn';
 
 /** Swatches of the text color palette. Override with the `textColors` input. */
 export const RTE_TEXT_COLORS: readonly string[] = [
@@ -100,6 +107,7 @@ export const RTE_DEFAULT_LABELS: Readonly<Record<RteLabelKey, string>> = {
   backgroundColor: 'Background color',
   colorNone: 'None',
   colorCustom: 'Custom…',
+  scopeSelection: 'Selection',
   scopeCell: 'Cell',
   scopeRow: 'Row',
   scopeColumn: 'Column',
@@ -150,6 +158,7 @@ export const RTE_LABELS_FR: Readonly<Record<RteLabelKey, string>> = {
   backgroundColor: 'Couleur de fond',
   colorNone: 'Aucune',
   colorCustom: 'Personnalisée…',
+  scopeSelection: 'Sélection',
   scopeCell: 'Cellule',
   scopeRow: 'Ligne',
   scopeColumn: 'Colonne',

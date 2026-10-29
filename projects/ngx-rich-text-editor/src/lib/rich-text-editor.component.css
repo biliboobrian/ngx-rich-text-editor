@@ -148,7 +148,7 @@
 /* Color palette, below its toolbar button. */
 .nrte__palette {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   box-sizing: border-box;
   width: 212px;
   padding: 8px;
@@ -254,10 +254,24 @@
   pointer-events: none;
 }
 
+/* Selected table cells */
+.nrte__cell-overlay {
+  position: absolute;
+  z-index: 1;
+  background: var(--nrte-accent-bg);
+  outline: 2px solid var(--nrte-accent);
+  outline-offset: -1px;
+  pointer-events: none;
+}
+
+.nrte__content--cell-select ::selection {
+  background: transparent;
+}
+
 /* Floating bar shown while the caret is in a table. */
 .nrte__tablebar {
   position: absolute;
-  z-index: 1;
+  z-index: 2;
   flex-wrap: nowrap;
   padding: 4px;
   border: 1px solid var(--nrte-border);

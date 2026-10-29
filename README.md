@@ -110,7 +110,10 @@ row / column / delete commands (`RTE_TABLE_TOOLBAR`), plus table formatting:
 - **column widths**: drag a column border; double-click it to go back to automatic widths
   (stored as `<colgroup>` + `table-layout: fixed`);
 - **text / background color** of the current cell, row or column (`tableTextColor`, `tableBackground`);
-- **border width** of the whole table: none, 1, 2 or 3 px (`tableBorder`, or `setTableBorder(px)`).
+- **border width** of the whole table: none, 1, 2 or 3 px (`tableBorder`, or `setTableBorder(px)`);
+- **cell selection**: drag across cells or Shift+click to select a rectangle of cells. Bold, italic,
+  underline, strikethrough, alignment, text / background colors and borders then apply to the
+  selected cells (as cell styles), <kbd>Delete</kbd> empties them, <kbd>Esc</kbd> cancels.
 
 Formatting is written as inline styles on the cells, so the HTML renders the same outside the
 editor. All list and table edits can be undone.

@@ -79,17 +79,30 @@ const TABLE_BAR_HEIGHT = 38;
 /** What a color applies to: the selected text, or the cells of a table. */
 export type RteColorKind = 'textColor' | 'backgroundColor' | 'tableTextColor' | 'tableBackground';
 
-/** Cells affected by a table color: the cell holding the caret, its row or its column. */
-export type RteTableScope = 'cell' | 'row' | 'column';
+/** Cells affected by a table color: the selected cells, the cell holding the caret, its row or its column. */
+export type RteTableScope = 'selection' | 'cell' | 'row' | 'column';
 
 const COLOR_KINDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
   'textColor', 'backgroundColor', 'tableTextColor', 'tableBackground',
 ]);
 
 const SCOPE_LABELS: Record<RteTableScope, RteLabelKey> = {
+  selection: 'scopeSelection',
   cell: 'scopeCell',
   row: 'scopeRow',
   column: 'scopeColumn',
+};
+
+/** Formatting applied to whole cells while several cells are selected: [CSS property, value]. */
+const CELL_STYLES: Partial<Record<RteCommand, [string, string]>> = {
+  bold: ['font-weight', 'bold'],
+  italic: ['font-style', 'italic'],
+  underline: ['text-decoration-line', 'underline'],
+  strikeThrough: ['text-decoration-line', 'line-through'],
+  alignLeft: ['text-align', 'left'],
+  alignCenter: ['text-align', 'center'],
+  alignRight: ['text-align', 'right'],
+  alignJustify: ['text-align', 'justify'],
 };
 
 /** Border widths offered for tables (px); 0 hides the borders. */
@@ -193,6 +206,10 @@ function setColumnWidths(table: HTMLTableElement, widths: number[] | null): void
   if (!table.getAttribute('style')) table.removeAttribute('style');
 }
 
+function cellCoords(cell: HTMLTableCellElement): [number, number] {
+  return [(cell.parentElement as HTMLTableRowElement).rowIndex, cell.cellIndex];
+}
+
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
@@ -280,7 +297,19 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   });
   /** Cells a table color applies to, chosen in the palette. */
   protected readonly tableScope = signal<RteTableScope>('cell');
-  protected readonly tableScopes = Object.keys(SCOPE_LABELS) as RteTableScope[];
+  /** Rectangle of selected cells, as [row, column] of two opposite corners. */
+  protected readonly cellSelection = signal<{
+    table: HTMLTableElement;
+    anchor: [number, number];
+    focus: [number, number];
+  } | null>(null);
+  /** Highlight drawn over the selected cells. */
+  protected readonly cellOverlay = signal<{ top: number; left: number; width: number; height: number } | null>(null);
+  /** A cell selection is being dragged: hides the browser's text selection. */
+  protected readonly cellSelecting = signal(false);
+  protected readonly tableScopes = computed<RteTableScope[]>(() =>
+    this.cellSelection() ? ['selection', 'cell', 'row', 'column'] : ['cell', 'row', 'column'],
+  );
   protected readonly borderWidths = BORDER_WIDTHS;
   /** Pointer over a column border: shows the resize cursor. */
   protected readonly colResizeHover = signal(false);
@@ -297,6 +326,8 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
   /** Last HTML known to be in sync with the editable element. */
   private lastHtml: string | null = null;
+  /** Set while the editor rewrites a table itself (its input events don't end a cell selection). */
+  private internalEdit = false;
   private savedRange: Range | null = null;
   private onChange: (value: string) => void = () => {};
   private onTouched: () => void = () => {};
@@ -325,6 +356,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
         const target = event.target as Element;
         const inside = this.root().nativeElement.contains(target) && target.closest('.nrte__palette, .nrte__btn--color');
         if (!inside) this.palette.set(null);
+        if (!this.root().nativeElement.contains(target)) this.clearCellSelection();
       };
       this.doc.addEventListener('mousedown', onMouseDown);
       this.destroyRef.onDestroy(() => {
@@ -361,6 +393,11 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (this.isDisabled() || this.sourceMode()) return;
     this.palette.set(null);
     this.restoreSelection();
+    if (this.cellSelection() && (kind === 'textColor' || kind === 'backgroundColor')) {
+      // with selected cells, the text colors apply to the cells themselves
+      kind = kind === 'textColor' ? 'tableTextColor' : 'tableBackground';
+      scope = 'selection';
+    }
     if (kind === 'tableTextColor' || kind === 'tableBackground') {
       const prop = kind === 'tableTextColor' ? 'color' : 'background-color';
       this.styleCells(scope, (cell) => (color ? cell.style.setProperty(prop, color) : cell.style.removeProperty(prop)));
@@ -376,13 +413,16 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     this.updateActiveStates();
   }
 
-  /** Sets the border width (px) of every cell of the table holding the caret; 0 hides the borders. */
+  /**
+   * Sets the border width (px) of the selected cells, or of every cell of the table holding the
+   * caret; 0 hides the borders.
+   */
   setTableBorder(width: number): void {
     if (this.isDisabled() || this.sourceMode()) return;
     this.palette.set(null);
     this.restoreSelection();
     const color = getComputedStyle(this.root().nativeElement).getPropertyValue('--nrte-border').trim() || '#d0d7de';
-    this.styleCells('table', (cell) => {
+    this.styleCells(this.cellSelection() ? 'selection' : 'table', (cell) => {
       cell.style.removeProperty('border');
       if (width) cell.style.border = `${width}px solid ${color}`;
       else cell.style.borderStyle = 'none';
@@ -402,6 +442,15 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (COLOR_KINDS.has(command) || command === 'tableBorder') {
       this.togglePalette(command as RteColorKind | 'tableBorder');
       return;
+    }
+    if (this.cellSelection()) {
+      if (CELL_STYLES[command]) {
+        this.styleSelectedCells(CELL_STYLES[command]!);
+        this.syncFromEditor();
+        this.updateActiveStates();
+        return;
+      }
+      this.clearCellSelection();
     }
 
     const block = BLOCK_COMMANDS[command];
@@ -488,8 +537,24 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   // --------------------------------------------------------------- events
 
-  protected onInput(): void {
+  protected onInput(event: Event): void {
+    if (!this.internalEdit) this.clearCellSelection();
+    if ((event as InputEvent).inputType?.startsWith('history')) this.collapseRestoredBlock();
     this.syncFromEditor();
+  }
+
+  /**
+   * Undoing a list/table rewrite makes the browser select the whole block, so the next click
+   * would drag it and typing would replace it: keep a caret at its start instead.
+   */
+  private collapseRestoredBlock(): void {
+    const sel = this.doc.getSelection();
+    if (!sel?.rangeCount || sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    const block = range.startContainer.childNodes[range.startOffset];
+    if (!block || !/^(TABLE|LI)$/.test(block.nodeName)) return;
+    const target = block.nodeName === 'TABLE' ? (block as HTMLTableElement).rows[0]?.cells[0] : block;
+    if (target) sel.collapse(target, 0);
   }
 
   protected onFocus(): void {
@@ -521,6 +586,25 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       this.palette.set(null);
       return;
     }
+    if (this.cellSelection() && !['Shift', 'Control', 'Meta', 'Alt'].includes(event.key)) {
+      const key = event.key.toLowerCase();
+      const shortcut = ({ b: 'bold', i: 'italic', u: 'underline' } as Record<string, RteCommand>)[key];
+      if ((event.ctrlKey || event.metaKey) && shortcut) {
+        event.preventDefault();
+        void this.execute(shortcut);
+        return;
+      }
+      if (key === 'delete' || key === 'backspace') {
+        // empties the selected cells
+        event.preventDefault();
+        this.styleCells('selection', (cell) => (cell.innerHTML = '<br>'));
+        this.clearCellSelection();
+        this.syncFromEditor();
+        return;
+      }
+      this.clearCellSelection();
+      if (key === 'escape') return;
+    }
     if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       const cell = this.closestCell();
       const li = this.closestInEditor('li');
@@ -549,10 +633,17 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (!this.colGuide()) this.colResizeHover.set(!!this.resizeTarget(event));
   }
 
-  /** Dragging a column border shows a guide; the new width is applied on release. */
+  /**
+   * Dragging a column border shows a guide; the new width is applied on release.
+   * Dragging across cells (or Shift+click) selects a rectangle of cells.
+   */
   protected onContentMouseDown(event: MouseEvent): void {
+    if (event.button !== 0) return;
     const target = this.resizeTarget(event);
-    if (!target || event.button !== 0) return;
+    if (!target) {
+      this.startCellSelection(event);
+      return;
+    }
     event.preventDefault();
     const { table, col } = target;
     const widths = columnWidths(table) ?? measureColumns(table);
@@ -578,6 +669,113 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     move(event);
     this.doc.addEventListener('mousemove', move);
     this.doc.addEventListener('mouseup', up);
+  }
+
+  private startCellSelection(event: MouseEvent): void {
+    const cell = this.closestCell(event.target as Node);
+    const table = cell?.closest('table');
+    const current = this.cellSelection();
+    if (cell && table && event.shiftKey) {
+      // Shift+click: from the selection anchor (or the caret cell) to the clicked cell
+      const caretCell = this.closestCell();
+      const anchor = current?.table === table ? current.anchor : caretCell?.closest('table') === table ? cellCoords(caretCell!) : null;
+      if (anchor) {
+        event.preventDefault();
+        this.setCellSelection(table, anchor, cellCoords(cell));
+        return;
+      }
+    }
+    this.clearCellSelection();
+    if (!cell || !table || this.isDisabled()) return;
+
+    const move = (e: MouseEvent) => {
+      const over = this.closestCell(this.doc.elementFromPoint(e.clientX, e.clientY));
+      if (!over || over.closest('table') !== table) return;
+      if (over !== cell) {
+        this.cellSelecting.set(true);
+        this.setCellSelection(table, cellCoords(cell), cellCoords(over));
+      } else if (this.cellSelection()) {
+        this.clearCellSelection();
+      }
+    };
+    const up = () => {
+      this.doc.removeEventListener('mousemove', move);
+      this.doc.removeEventListener('mouseup', up);
+      if (!this.cellSelecting()) return;
+      this.cellSelecting.set(false);
+      // drop the browser's text selection: the caret goes to the last selected cell
+      const sel = this.cellSelection();
+      const last = sel?.table.rows[sel.focus[0]]?.cells[sel.focus[1]];
+      if (last) {
+        const range = this.doc.createRange();
+        range.selectNodeContents(last);
+        range.collapse(false);
+        this.doc.getSelection()?.removeAllRanges();
+        this.doc.getSelection()?.addRange(range);
+      }
+    };
+    this.doc.addEventListener('mousemove', move);
+    this.doc.addEventListener('mouseup', up);
+  }
+
+  private setCellSelection(table: HTMLTableElement, anchor: [number, number], focus: [number, number]): void {
+    this.cellSelection.set({ table, anchor, focus });
+    this.tableScope.set('selection');
+    this.updateCellOverlay();
+  }
+
+  private clearCellSelection(): void {
+    if (!this.cellSelection()) return;
+    this.cellSelection.set(null);
+    this.cellOverlay.set(null);
+    if (this.tableScope() === 'selection') this.tableScope.set('cell');
+  }
+
+  /** Cells of the selected rectangle, in `table` (defaults to the selected table). */
+  private selectedCells(table = this.cellSelection()?.table): HTMLTableCellElement[] {
+    const sel = this.cellSelection();
+    if (!sel || !table) return [];
+    const [r1, r2] = [sel.anchor[0], sel.focus[0]].sort((a, b) => a - b);
+    const [c1, c2] = [sel.anchor[1], sel.focus[1]].sort((a, b) => a - b);
+    const cells: HTMLTableCellElement[] = [];
+    for (let r = r1; r <= r2; r++) {
+      for (let c = c1; c <= c2; c++) {
+        const cell = table.rows[r]?.cells[c];
+        if (cell) cells.push(cell);
+      }
+    }
+    return cells;
+  }
+
+  private updateCellOverlay(): void {
+    const cells = this.selectedCells();
+    if (!cells.length) {
+      this.cellOverlay.set(null);
+      return;
+    }
+    const box = this.root().nativeElement.getBoundingClientRect();
+    const rects = cells.map((cell) => cell.getBoundingClientRect());
+    const left = Math.min(...rects.map((r) => r.left));
+    const top = Math.min(...rects.map((r) => r.top));
+    this.cellOverlay.set({
+      left: left - box.left,
+      top: top - box.top,
+      width: Math.max(...rects.map((r) => r.right)) - left,
+      height: Math.max(...rects.map((r) => r.bottom)) - top,
+    });
+  }
+
+  /** Toggles a formatting on every selected cell (on for all unless they all have it already). */
+  private styleSelectedCells([prop, value]: [string, string]): void {
+    const has = (cell: HTMLElement) => cell.style.getPropertyValue(prop).split(' ').includes(value);
+    const toggle = prop !== 'text-align' && this.selectedCells().every(has);
+    this.styleCells('selection', (cell) => {
+      // text-decoration-line can hold both underline and line-through
+      const tokens = prop === 'text-decoration-line' ? cell.style.getPropertyValue(prop).split(' ').filter(Boolean) : [];
+      const next = toggle ? tokens.filter((t) => t !== value) : [...tokens.filter((t) => t !== value), value];
+      if (next.length) cell.style.setProperty(prop, next.join(' '));
+      else cell.style.removeProperty(prop);
+    });
   }
 
   /** Double-click on a column border: back to automatic column widths. */
@@ -714,6 +912,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   /** Places the floating table bar above the table holding the caret (below it if there's no room). */
   protected updateTableBar(): void {
+    this.updateCellOverlay();
     const table = this.closestCell()?.closest('table');
     if (!table) {
       this.tableBar.set(null);
@@ -807,7 +1006,10 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     const copy = table.cloneNode(true) as HTMLTableElement;
 
     const result = mutate(copy, r, c);
-    if (result === false) return this.replaceNode(table, '');
+    if (result === false) {
+      this.clearCellSelection();
+      return this.replaceNode(table, '');
+    }
     if (result && !Array.isArray(result)) setColumnWidths(copy, result.widths);
     const [targetRow, targetCol, keepCaret] = Array.isArray(result) ? result : [r, c, !!cell];
     for (const section of [copy.tHead, copy.tFoot, ...Array.from(copy.tBodies)]) {
@@ -816,9 +1018,16 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
     const parent = table.parentNode!;
     const index = Array.prototype.indexOf.call(parent.childNodes, table);
+    this.internalEdit = true;
     this.replaceNode(table, copy.outerHTML);
+    this.internalEdit = false;
     const next = parent.childNodes[index];
-    if (next?.nodeName !== 'TABLE') return;
+    if (next?.nodeName !== 'TABLE') return this.clearCellSelection();
+    const cellSel = this.cellSelection();
+    if (cellSel?.table === table) {
+      this.cellSelection.set({ ...cellSel, table: next as HTMLTableElement });
+      this.updateCellOverlay();
+    }
     const rowEl = (next as HTMLTableElement).rows[targetRow];
     const cellEl = rowEl?.cells[Math.min(targetCol, rowEl.cells.length - 1)];
     if (cellEl) sel.collapse(...caretPoint(cellEl, keepCaret ? position : 0));
@@ -826,6 +1035,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   /** Row/column commands. */
   private editTable(command: RteCommand): void {
+    this.clearCellSelection();
     this.rewriteTable((copy, r, c) => {
       const rows = Array.from(copy.rows);
       const widths = columnWidths(copy);
@@ -870,10 +1080,12 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   /** Applies `apply` to the cell holding the caret, its row, its column or the whole table. */
   private styleCells(scope: RteTableScope | 'table', apply: (cell: HTMLTableCellElement) => void): void {
+    if (scope === 'selection' && !this.cellSelection()) scope = 'cell';
     this.rewriteTable((copy, r, c) => {
       const rows = Array.from(copy.rows);
       const cells =
-        scope === 'cell' ? [rows[r].cells[c]]
+        scope === 'selection' ? this.selectedCells(copy)
+        : scope === 'cell' ? [rows[r].cells[c]]
         : scope === 'row' ? Array.from(rows[r].cells)
         : scope === 'column' ? rows.map((tr) => tr.cells[c])
         : rows.flatMap((tr) => Array.from(tr.cells));
@@ -882,7 +1094,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
         apply(cell);
         if (!cell.getAttribute('style')) cell.removeAttribute('style');
       }
-    });
+    }, scope === 'selection' ? this.cellSelection()!.table : undefined);
   }
 
   /** New empty cell with the same tag and formatting (borders, colors) as `ref`. */

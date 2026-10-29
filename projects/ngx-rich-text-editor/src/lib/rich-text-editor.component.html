@@ -44,7 +44,7 @@
         @let kind = pal.kind;
         @if (kind === 'tableTextColor' || kind === 'tableBackground') {
           <div class="nrte__scopes" role="group">
-            @for (scope of tableScopes; track scope) {
+            @for (scope of tableScopes(); track scope) {
               <button
                 type="button"
                 class="nrte__btn"
@@ -111,6 +111,7 @@
     class="nrte__content"
     [class.nrte__content--empty]="isEmpty()"
     [class.nrte__content--col-resize]="colResizeHover() || !!colGuide()"
+    [class.nrte__content--cell-select]="cellSelecting()"
     [class.nrte__hidden]="sourceMode()"
     [attr.contenteditable]="isDisabled() ? 'false' : 'true'"
     [attr.data-placeholder]="placeholder()"
@@ -121,7 +122,7 @@
     role="textbox"
     aria-multiline="true"
     spellcheck="true"
-    (input)="onInput()"
+    (input)="onInput($event)"
     (paste)="onPaste($event)"
     (focus)="onFocus()"
     (blur)="onBlur()"
@@ -131,6 +132,16 @@
     (mousedown)="onContentMouseDown($event)"
     (dblclick)="onContentDblClick($event)"
   ></div>
+
+  @if (cellOverlay(); as overlay) {
+    <div
+      class="nrte__cell-overlay"
+      [style.top.px]="overlay.top"
+      [style.left.px]="overlay.left"
+      [style.width.px]="overlay.width"
+      [style.height.px]="overlay.height"
+    ></div>
+  }
 
   @if (sourceMode()) {
     <textarea
