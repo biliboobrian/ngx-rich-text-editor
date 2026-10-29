@@ -291,6 +291,13 @@
   cursor: text;
 }
 
+/* image files dragged over the editor */
+.nrte__content--drop {
+  outline: 2px dashed var(--nrte-accent);
+  outline-offset: -6px;
+  background: var(--nrte-accent-bg);
+}
+
 .nrte__content[contenteditable='false'] {
   cursor: default;
 }

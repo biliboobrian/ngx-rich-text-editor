@@ -28,6 +28,7 @@ import {
   RTE_TEXT_COLORS,
   RTE_TOGGLE_COMMANDS,
   RteCommand,
+  RteImageUploadFn,
   RteLabelKey,
   RtePromptFn,
   RteToolbarItem,
@@ -210,6 +211,19 @@ function cellCoords(cell: HTMLTableCellElement): [number, number] {
   return [(cell.parentElement as HTMLTableRowElement).rowIndex, cell.cellIndex];
 }
 
+/** Default image upload: embeds the file as a data URL. */
+const readAsDataUrl: RteImageUploadFn = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+function imageFiles(list: FileList | null | undefined): File[] {
+  return Array.from(list ?? []).filter((file) => file.type.startsWith('image/'));
+}
+
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
@@ -264,6 +278,11 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   readonly linkTargetBlank = input(false, { transform: booleanAttribute });
   /** Custom URL prompt for links/images (e.g. open your own dialog). Defaults to `window.prompt`. */
   readonly promptFn = input<RtePromptFn>(defaultPrompt);
+  /**
+   * Handles image files dropped or pasted in the editor: return the URL to use (e.g. after an
+   * upload). Defaults to embedding the image as a data URL.
+   */
+  readonly imageUpload = input<RteImageUploadFn>(readAsDataUrl);
   /** Minimum height of the editable area (any CSS length). */
   readonly minHeight = input<string>('160px');
   /** Maximum height of the editable area before it scrolls. */
@@ -307,6 +326,8 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   protected readonly cellOverlay = signal<{ top: number; left: number; width: number; height: number } | null>(null);
   /** A cell selection is being dragged: hides the browser's text selection. */
   protected readonly cellSelecting = signal(false);
+  /** Files are being dragged over the editable area. */
+  protected readonly dropActive = signal(false);
   protected readonly tableScopes = computed<RteTableScope[]>(() =>
     this.cellSelection() ? ['selection', 'cell', 'row', 'column'] : ['cell', 'row', 'column'],
   );
@@ -573,6 +594,11 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (!data) return;
     event.preventDefault();
     const html = data.getData('text/html');
+    const images = imageFiles(data.files);
+    if (images.length && !html) {
+      void this.insertImageFiles(images, null);
+      return;
+    }
     if (html && !this.pastePlainText()) {
       this.doc.execCommand('insertHTML', false, this.clean(html));
     } else {
@@ -625,6 +651,68 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       event.preventDefault();
       void this.execute('link');
     }
+  }
+
+  // ------------------------------------------------------------ image drop
+
+  protected onDragOver(event: DragEvent): void {
+    if (!event.dataTransfer?.types.includes('Files')) return;
+    // without this the browser would open the file instead of dropping it in the editor
+    event.preventDefault();
+    event.dataTransfer.dropEffect = this.isDisabled() ? 'none' : 'copy';
+    this.dropActive.set(!this.isDisabled());
+  }
+
+  protected onDragLeave(event: DragEvent): void {
+    if (!this.editable().nativeElement.contains(event.relatedTarget as Node)) this.dropActive.set(false);
+  }
+
+  /** Dropped image files are inserted where they are dropped. */
+  protected onDrop(event: DragEvent): void {
+    this.dropActive.set(false);
+    if (!event.dataTransfer?.types.includes('Files')) return;
+    event.preventDefault();
+    const images = imageFiles(event.dataTransfer.files);
+    if (!images.length || this.isDisabled()) return;
+    void this.insertImageFiles(images, this.rangeFromPoint(event.clientX, event.clientY));
+  }
+
+  /** Turns the files into URLs (`imageUpload`) and inserts them, in one step, at `range` or the caret. */
+  private async insertImageFiles(files: File[], range: Range | null): Promise<void> {
+    // remember where to insert: the upload may take a while and the caret may move meanwhile
+    const sel = this.doc.getSelection();
+    const current = sel?.rangeCount && this.editable().nativeElement.contains(sel.anchorNode) ? sel.getRangeAt(0) : null;
+    const at = (range ?? current ?? this.savedRange)?.cloneRange() ?? null;
+    const results = await Promise.allSettled(files.map(async (file) => (await this.imageUpload()(file))?.trim()));
+    const urls = results.flatMap((r) => (r.status === 'fulfilled' && r.value && isSafeUrl(r.value, true) ? [r.value] : []));
+    if (!urls.length) return;
+    const el = this.editable().nativeElement;
+    el.focus();
+    if (sel && at && el.contains(at.commonAncestorContainer)) {
+      sel.removeAllRanges();
+      sel.addRange(at);
+    } else {
+      this.restoreSelection();
+    }
+    this.doc.execCommand('insertHTML', false, urls.map((url) => `<img src="${escapeHtml(url)}" alt="">`).join(''));
+    this.syncFromEditor();
+  }
+
+  /** Caret position under the pointer, if it is in the editor. */
+  private rangeFromPoint(x: number, y: number): Range | null {
+    const doc = this.doc as Document & {
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    };
+    let range: Range | null = null;
+    const position = doc.caretPositionFromPoint?.(x, y);
+    if (position) {
+      range = doc.createRange();
+      range.setStart(position.offsetNode, position.offset);
+    } else {
+      range = doc.caretRangeFromPoint?.(x, y) ?? null;
+    }
+    return range && this.editable().nativeElement.contains(range.startContainer) ? range : null;
   }
 
   // ------------------------------------------------------- column resizing

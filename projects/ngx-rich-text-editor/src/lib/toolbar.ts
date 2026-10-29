@@ -73,6 +73,12 @@ export type RtePromptFn = (
   currentValue: string,
 ) => string | null | undefined | Promise<string | null | undefined>;
 
+/**
+ * Turns a dropped or pasted image file into the URL used as `src`: upload it and return its URL,
+ * or return a data URL. Throw / reject to skip the file.
+ */
+export type RteImageUploadFn = (file: File) => string | Promise<string>;
+
 export const RTE_DEFAULT_TOOLBAR: readonly RteToolbarItem[] = [
   'undo', 'redo', '|',
   'paragraph', 'h1', 'h2', 'h3', '|',

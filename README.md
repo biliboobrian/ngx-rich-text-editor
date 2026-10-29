@@ -72,6 +72,7 @@ Just one-way input + output:
 | `pastePlainText`  | `boolean`                             | `false`               | Always paste as plain text. |
 | `linkTargetBlank` | `boolean`                             | `false`               | Inserted links open in a new tab. |
 | `promptFn`        | `RtePromptFn`                         | `window.prompt`       | Ask for link / image URLs (plug your own dialog, may return a Promise). |
+| `imageUpload`     | `RteImageUploadFn`                    | data URL              | Turns dropped / pasted image files into the `src` to use (e.g. upload and return the URL). |
 | `minHeight`       | `string`                              | `'160px'`             | Min height of the editable area. |
 | `maxHeight`       | `string \| null`                      | `null`                | Max height before scrolling. |
 | `ariaLabel`       | `string`                              | `'Rich text editor'`  | Accessible label. |
@@ -117,6 +118,23 @@ row / column / delete commands (`RTE_TABLE_TOOLBAR`), plus table formatting:
 
 Formatting is written as inline styles on the cells, so the HTML renders the same outside the
 editor. All list and table edits can be undone.
+
+**Images** can also be dragged from the desktop into the editor (inserted where they are dropped)
+or pasted from the clipboard (e.g. a screenshot). By default they are embedded as data URLs; pass
+`imageUpload` to store them elsewhere:
+
+```ts
+upload: RteImageUploadFn = async (file) => {
+  const body = new FormData();
+  body.append('file', file);
+  const res = await fetch('/api/images', { method: 'POST', body });
+  return (await res.json()).url;
+};
+```
+
+```html
+<ngx-rich-text-editor [(value)]="html" [imageUpload]="upload" />
+```
 
 `textColor` / `backgroundColor` open a palette (plus "none" and a custom color picker) and
 produce `<span style="color: …">` / `<span style="background-color: …">`. Change the swatches with
