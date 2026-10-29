@@ -1,0 +1,5 @@
+{
+  "name": "ngx-rich-text-editor-compat",
+  "private": true,
+  "description": "Consumer app used by CI to test the packed library against several Angular versions"
+}
