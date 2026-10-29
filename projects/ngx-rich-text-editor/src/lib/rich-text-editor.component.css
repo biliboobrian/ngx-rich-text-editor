@@ -173,6 +173,11 @@
   padding-left: 1.5em;
 }
 
+.nrte__content li > ul,
+.nrte__content li > ol {
+  margin-bottom: 0;
+}
+
 .nrte__content blockquote {
   margin: 0 0 0.75em;
   padding: 0.25em 1em;

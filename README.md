@@ -92,7 +92,11 @@ Just one-way input + output:
 toolbar: RteToolbarItem[] = ['bold', 'italic', '|', 'unorderedList', 'orderedList', '|', 'link', 'source'];
 ```
 
-Keyboard: <kbd>Ctrl/⌘ + B / I / U</kbd> (native), <kbd>Ctrl/⌘ + K</kbd> insert link.
+Keyboard: <kbd>Ctrl/⌘ + B / I / U</kbd> (native), <kbd>Ctrl/⌘ + K</kbd> insert link,
+<kbd>Tab</kbd> / <kbd>Shift + Tab</kbd> in a list nest / un-nest the item.
+
+Lists can be nested and mixed: indent an item, then switch the nested level to bullets or
+numbers — only that level changes (e.g. a bulleted sub-list inside a numbered list).
 
 ## Public methods
 

@@ -59,6 +59,11 @@ const NATIVE_COMMANDS: Partial<Record<RteCommand, string>> = {
   horizontalRule: 'insertHorizontalRule',
 };
 
+const LIST_COMMANDS: Partial<Record<RteCommand, 'ul' | 'ol'>> = {
+  unorderedList: 'ul',
+  orderedList: 'ol',
+};
+
 const STATE_COMMANDS: RteCommand[] = [
   'bold', 'italic', 'underline', 'strikeThrough', 'subscript', 'superscript',
   'unorderedList', 'orderedList', 'alignLeft', 'alignCenter', 'alignRight', 'alignJustify',
@@ -68,6 +73,59 @@ const defaultPrompt: RtePromptFn = (kind, current) =>
   typeof window === 'undefined'
     ? null
     : window.prompt(kind === 'link' ? 'URL du lien / Link URL' : "URL de l'image / Image URL", current || 'https://');
+
+/** Child indexes leading from `root` down to `node`. */
+function pathOf(node: Node, root: Node): number[] {
+  const path: number[] = [];
+  for (let n = node; n !== root; n = n.parentNode!) {
+    path.unshift(Array.prototype.indexOf.call(n.parentNode!.childNodes, n));
+  }
+  return path;
+}
+
+function resolvePath(root: Node, path: number[]): Node {
+  return path.reduce((node, i) => node.childNodes[i], root);
+}
+
+/** Text nodes and list items of a list, in document order (whitespace between items is ignored). */
+function caretUnits(root: Node): Node[] {
+  const units: Node[] = [];
+  const walker = root.ownerDocument!.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n.nodeType === Node.TEXT_NODE ? !/^(ul|ol)$/.test(n.parentNode!.nodeName.toLowerCase()) : n.nodeName === 'LI') {
+      units.push(n);
+    }
+  }
+  return units;
+}
+
+/** Number of characters and list items before a boundary point of `root`. */
+function caretPosition(root: Node, container: Node, offset: number): number {
+  const before = root.ownerDocument!.createRange();
+  before.setStart(root, 0);
+  before.setEnd(container, offset);
+  let position = 0;
+  for (const unit of caretUnits(root)) {
+    if (unit === container && unit.nodeType === Node.TEXT_NODE) return position + offset;
+    if (!before.intersectsNode(unit)) break;
+    position += unit.nodeType === Node.TEXT_NODE ? (unit as Text).length : 1;
+  }
+  return position;
+}
+
+/** Boundary point matching a position computed by `caretPosition`. */
+function caretPoint(root: Node, position: number): [Node, number] {
+  let rest = position;
+  for (const unit of caretUnits(root)) {
+    if (unit.nodeType === Node.TEXT_NODE) {
+      if (rest <= (unit as Text).length) return [unit, rest];
+      rest -= (unit as Text).length;
+    } else if (--rest === 0) {
+      return [unit, 0];
+    }
+  }
+  return [root, root.childNodes.length];
+}
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -205,7 +263,9 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     const block = BLOCK_COMMANDS[command];
     const native = NATIVE_COMMANDS[command];
 
-    if (block) {
+    if (this.handleListCommand(command)) {
+      // handled with nested-list support
+    } else if (block) {
       const tag = this.active()[command] && command !== 'paragraph' ? 'p' : block;
       this.exec('formatBlock', `<${tag}>`);
     } else if (native) {
@@ -291,6 +351,11 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   protected onKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey && this.closestInEditor('li')) {
+      event.preventDefault();
+      void this.execute(event.shiftKey ? 'outdent' : 'indent');
+      return;
+    }
     if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
     if (key === 'k') {
@@ -400,19 +465,183 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     for (const [cmd, tag] of Object.entries(BLOCK_COMMANDS)) {
       state[cmd as RteCommand] = block === tag;
     }
+    // the innermost list decides, so a bulleted list nested in a numbered one shows as bulleted
+    const list = this.closestInEditor('li')?.parentElement?.localName;
+    state.unorderedList = list === 'ul';
+    state.orderedList = list === 'ol';
     state.link = !!this.closestInEditor('a');
     this.active.set(state);
   }
 
-  private closestInEditor<K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] | null {
-    const sel = this.doc.getSelection();
+  private closestInEditor<K extends keyof HTMLElementTagNameMap>(
+    tag: K,
+    from: Node | null = this.doc.getSelection()?.anchorNode ?? null,
+  ): HTMLElementTagNameMap[K] | null {
     const el = this.editable().nativeElement;
-    let node: Node | null = sel?.anchorNode ?? null;
+    let node = from;
     while (node && node !== el) {
       if (node.nodeType === 1 && (node as Element).localName === tag) return node as HTMLElementTagNameMap[K];
       node = node.parentNode;
     }
     return null;
+  }
+
+  /**
+   * List commands with nested-list support: switching the list type only affects the innermost
+   * list, and indent/outdent nest list items inside the previous item (valid `li > ul` markup).
+   * The change is computed on a copy of the top-level list and written back with `insertHTML`
+   * so it stays in the browser's undo history. Returns false to let the native command run.
+   */
+  private handleListCommand(command: RteCommand): boolean {
+    const tag = LIST_COMMANDS[command];
+    if (!tag && command !== 'indent' && command !== 'outdent') return false;
+    this.restoreSelection();
+    const items = this.selectedListItems();
+    if (!items.length) return !!tag && this.createList(tag);
+    const list = items[0].parentElement!;
+    let top = list;
+    for (let li = this.closestInEditor('li', top.parentNode); li; li = this.closestInEditor('li', top.parentNode)) {
+      top = li.parentElement!;
+    }
+    // top-level type switch, removing a list, or lifting items out of it: native behaviour is fine
+    if (tag && (list.localName === tag || list === top)) return false;
+    if (command === 'outdent' && list === top) return false;
+    if (command === 'indent' && items[0].previousElementSibling?.localName !== 'li') return true;
+
+    const sel = this.doc.getSelection()!;
+    const range = sel.getRangeAt(0);
+    // text and list items keep their order, so the caret is saved as a position within the list
+    const start = caretPosition(top, range.startContainer, range.startOffset);
+    const end = top.contains(range.endContainer) ? caretPosition(top, range.endContainer, range.endOffset) : start;
+    const copy = top.cloneNode(true) as HTMLElement;
+    const copyItems = items.map((li) => resolvePath(copy, pathOf(li, top))) as HTMLLIElement[];
+
+    if (tag) {
+      this.changeListType(copyItems[0].parentElement!, tag);
+    } else if (command === 'indent') {
+      this.indentItems(copyItems);
+    } else {
+      this.outdentItems(copyItems);
+    }
+
+    const replaced = this.doc.createRange();
+    replaced.selectNodeContents(top);
+    sel.removeAllRanges();
+    sel.addRange(replaced);
+    this.doc.execCommand('insertHTML', false, copy.innerHTML);
+
+    if (top.isConnected) {
+      const caret = this.doc.createRange();
+      caret.setStart(...caretPoint(top, start));
+      caret.setEnd(...caretPoint(top, end));
+      sel.removeAllRanges();
+      sel.addRange(caret);
+    }
+    return true;
+  }
+
+  /**
+   * Turns the selected paragraphs into a list. Chrome's native command would nest the list
+   * inside the `<p>`, which breaks later editing and isn't valid HTML.
+   */
+  private createList(tag: 'ul' | 'ol'): boolean {
+    const el = this.editable().nativeElement;
+    const sel = this.doc.getSelection()!;
+    const range = sel.getRangeAt(0);
+    const blockOf = (node: Node) => {
+      let n = node;
+      while (n.parentNode && n.parentNode !== el) n = n.parentNode;
+      return n.parentNode === el ? n : null;
+    };
+    const first = blockOf(range.startContainer);
+    const last = blockOf(range.endContainer);
+    if (!first || !last) return false;
+    const blocks: Node[] = [];
+    for (let n: Node | null = first; n; n = n.nextSibling) {
+      if (n.nodeType !== Node.TEXT_NODE || n.textContent!.trim()) blocks.push(n);
+      if (n === last) break;
+    }
+    if (!blocks.every((b) => b.nodeName === 'P' || b.nodeName === 'DIV')) return false;
+
+    // caret as a position in the new list: characters before it plus one per list item
+    const index = blocks.findIndex((b) => b.contains(range.startContainer));
+    const inBlock = this.doc.createRange();
+    inBlock.setStart(blocks[index], 0);
+    inBlock.setEnd(range.startContainer, range.startOffset);
+    let position = inBlock.toString().length + index + 1;
+    for (const b of blocks.slice(0, index)) position += b.textContent!.length;
+
+    const replaced = this.doc.createRange();
+    replaced.setStart(first, 0);
+    replaced.setEnd(last, last.childNodes.length);
+    sel.removeAllRanges();
+    sel.addRange(replaced);
+    const html = blocks.map((b) => `<li>${(b as Element).innerHTML || '<br>'}</li>`).join('');
+    this.doc.execCommand('insertHTML', false, `<${tag}>${html}</${tag}>`);
+
+    const list = this.closestInEditor('li')?.parentElement;
+    if (list) sel.collapse(...caretPoint(list, position));
+    return true;
+  }
+
+  /** Selected list items that are siblings of the item holding the start of the selection. */
+  private selectedListItems(): HTMLLIElement[] {
+    const sel = this.doc.getSelection();
+    if (!sel?.rangeCount) return [];
+    const range = sel.getRangeAt(0);
+    const first = this.closestInEditor('li', range.startContainer);
+    if (!first) return [];
+    // the selection may end deeper (in a sub-list): climb back to the level of the first item
+    let last = this.closestInEditor('li', range.endContainer);
+    while (last && last.parentNode !== first.parentNode) last = this.closestInEditor('li', last.parentNode);
+    const items = [first];
+    for (let li: Element | null = first; last && li !== last; ) {
+      li = li.nextElementSibling;
+      if (!li) break;
+      if (li.localName === 'li') items.push(li as HTMLLIElement);
+    }
+    return items;
+  }
+
+  private changeListType(list: HTMLElement, tag: 'ul' | 'ol'): void {
+    const next = this.doc.createElement(tag);
+    for (const attr of Array.from(list.attributes)) {
+      if (!['start', 'type', 'reversed'].includes(attr.name)) next.setAttribute(attr.name, attr.value);
+    }
+    next.append(...Array.from(list.childNodes));
+    list.replaceWith(next);
+  }
+
+  /** Moves the items into a sub-list of the previous item. */
+  private indentItems(items: HTMLLIElement[]): void {
+    const prev = items[0].previousElementSibling!;
+    const tag = items[0].parentElement!.localName;
+    let sub = prev.lastElementChild;
+    if (sub?.localName !== tag) {
+      sub = this.doc.createElement(tag);
+      prev.append(sub);
+    }
+    sub.append(...items);
+  }
+
+  /** Moves nested items one level up, right after their parent item. */
+  private outdentItems(items: HTMLLIElement[]): void {
+    const list = items[0].parentElement!;
+    const parentItem = list.parentElement!;
+    // the following siblings become children of the last moved item, so the order is kept
+    const last = items[items.length - 1];
+    const rest: Node[] = [];
+    for (let n = last.nextSibling; n; n = n.nextSibling) rest.push(n);
+    if (rest.some((n) => n.nodeType === 1)) {
+      let sub = last.lastElementChild;
+      if (sub?.localName !== list.localName) {
+        sub = this.doc.createElement(list.localName);
+        last.append(sub);
+      }
+      sub.append(...rest);
+    }
+    parentItem.after(...items);
+    if (!list.children.length) list.remove();
   }
 
   private async askUrl(kind: 'link' | 'image', current: string): Promise<string | null> {
