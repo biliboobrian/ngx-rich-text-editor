@@ -17,12 +17,13 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { DOCUMENT, isPlatformBrowser } from '@angular/common';
+import { DOCUMENT, NgTemplateOutlet, isPlatformBrowser } from '@angular/common';
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 import { RteSanitizeOptions, isSafeUrl, sanitizeHtml } from './sanitize';
 import {
   RTE_DEFAULT_LABELS,
   RTE_DEFAULT_TOOLBAR,
+  RTE_TABLE_TOOLBAR,
   RTE_TOGGLE_COMMANDS,
   RteCommand,
   RtePromptFn,
@@ -63,6 +64,14 @@ const LIST_COMMANDS: Partial<Record<RteCommand, 'ul' | 'ol'>> = {
   unorderedList: 'ul',
   orderedList: 'ol',
 };
+
+const TABLE_COMMANDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
+  'tableRowAbove', 'tableRowBelow', 'tableColLeft', 'tableColRight',
+  'tableRowDelete', 'tableColDelete', 'tableDelete',
+]);
+
+/** Height of the floating table bar, used to place it above the table. */
+const TABLE_BAR_HEIGHT = 38;
 
 const STATE_COMMANDS: RteCommand[] = [
   'bold', 'italic', 'underline', 'strikeThrough', 'subscript', 'superscript',
@@ -115,6 +124,7 @@ function caretPosition(root: Node, container: Node, offset: number): number {
 
 /** Boundary point matching a position computed by `caretPosition`. */
 function caretPoint(root: Node, position: number): [Node, number] {
+  if (position === 0) return [root, 0];
   let rest = position;
   for (const unit of caretUnits(root)) {
     if (unit.nodeType === Node.TEXT_NODE) {
@@ -142,6 +152,7 @@ function escapeHtml(text: string): string {
 @Component({
   selector: 'ngx-rich-text-editor',
   standalone: true,
+  imports: [NgTemplateOutlet],
   templateUrl: './rich-text-editor.component.html',
   styleUrl: './rich-text-editor.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -188,12 +199,16 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   /** Emitted when the editable area loses focus. */
   readonly editorBlur = output<void>();
 
+  protected readonly root = viewChild.required<ElementRef<HTMLDivElement>>('root');
   protected readonly editable = viewChild.required<ElementRef<HTMLDivElement>>('editable');
   protected readonly sourceArea = viewChild<ElementRef<HTMLTextAreaElement>>('sourceArea');
 
   protected readonly focused = signal(false);
   protected readonly sourceMode = signal(false);
   protected readonly active = signal<Partial<Record<RteCommand, boolean>>>({});
+  /** Position of the floating table bar, or null when the caret isn't in a table. */
+  protected readonly tableBar = signal<{ top: number; left: number } | null>(null);
+  protected readonly tableToolbar = RTE_TABLE_TOOLBAR;
   private readonly formDisabled = signal(false);
 
   protected readonly isDisabled = computed(() => this.readonly() || this.formDisabled());
@@ -265,6 +280,10 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
     if (this.handleListCommand(command)) {
       // handled with nested-list support
+    } else if (command === 'table') {
+      this.insertTable();
+    } else if (TABLE_COMMANDS.has(command)) {
+      this.editTable(command);
     } else if (block) {
       const tag = this.active()[command] && command !== 'paragraph' ? 'p' : block;
       this.exec('formatBlock', `<${tag}>`);
@@ -351,10 +370,19 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   protected onKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey && this.closestInEditor('li')) {
-      event.preventDefault();
-      void this.execute(event.shiftKey ? 'outdent' : 'indent');
-      return;
+    if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const cell = this.closestCell();
+      const li = this.closestInEditor('li');
+      if (cell && !(li && cell.contains(li))) {
+        event.preventDefault();
+        this.moveToCell(cell, event.shiftKey ? -1 : 1);
+        return;
+      }
+      if (li) {
+        event.preventDefault();
+        void this.execute(event.shiftKey ? 'outdent' : 'indent');
+        return;
+      }
     }
     if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
@@ -471,6 +499,24 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     state.orderedList = list === 'ol';
     state.link = !!this.closestInEditor('a');
     this.active.set(state);
+    this.updateTableBar();
+  }
+
+  /** Places the floating table bar above the table holding the caret (below it if there's no room). */
+  protected updateTableBar(): void {
+    const table = this.closestCell()?.closest('table');
+    if (!table) {
+      this.tableBar.set(null);
+      return;
+    }
+    const box = this.root().nativeElement.getBoundingClientRect();
+    const content = this.editable().nativeElement.getBoundingClientRect();
+    const rect = table.getBoundingClientRect();
+    const min = content.top - box.top + 4;
+    let top = rect.top - box.top - TABLE_BAR_HEIGHT - 4;
+    if (top < min) top = rect.bottom - box.top + 4;
+    top = Math.max(min, Math.min(top, box.height - TABLE_BAR_HEIGHT - 4));
+    this.tableBar.set({ top, left: Math.max(4, rect.left - box.left) });
   }
 
   private closestInEditor<K extends keyof HTMLElementTagNameMap>(
@@ -484,6 +530,137 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       node = node.parentNode;
     }
     return null;
+  }
+
+  private closestCell(from?: Node | null): HTMLTableCellElement | null {
+    const td = this.closestInEditor('td', from);
+    const th = this.closestInEditor('th', from);
+    return td && th ? (td.contains(th) ? th : td) : (td ?? th);
+  }
+
+  /** Inserts a 3x3 table at the caret and moves the caret into its first cell. */
+  private insertTable(): void {
+    const el = this.editable().nativeElement;
+    this.restoreSelection();
+    let block = this.doc.getSelection()?.anchorNode ?? null;
+    while (block && block !== el && block.parentNode !== el) block = block.parentNode;
+    // keep a paragraph after a trailing table so the caret can leave it
+    const after = !block || block === el || !block.nextSibling ? '<p><br></p>' : '';
+    const row = `<tr>${'<td><br></td>'.repeat(3)}</tr>`;
+    const existing = new Set(Array.from(el.querySelectorAll('table')));
+    this.doc.execCommand('insertHTML', false, `<table><tbody>${row.repeat(3)}</tbody></table>${after}`);
+    const table = Array.from(el.querySelectorAll('table')).find((t) => !existing.has(t));
+    const cell = table?.rows[0]?.cells[0];
+    if (cell) this.doc.getSelection()?.collapse(cell, 0);
+  }
+
+  /**
+   * Row/column commands. Like lists, the table is edited on a copy and written back with
+   * `insertHTML` so the change can be undone.
+   */
+  private editTable(command: RteCommand): void {
+    this.restoreSelection();
+    const cell = this.closestCell();
+    if (!cell) return;
+    const table = cell.closest('table')!;
+    const r = (cell.parentElement as HTMLTableRowElement).rowIndex;
+    const c = cell.cellIndex;
+    const sel = this.doc.getSelection()!;
+    const range = sel.getRangeAt(0);
+    const position = caretPosition(cell, range.startContainer, range.startOffset);
+    const copy = table.cloneNode(true) as HTMLTableElement;
+    const rows = Array.from(copy.rows);
+    // cell that gets the caret afterwards, and whether the caret keeps its place in it
+    let target: [number, number] = [r, c];
+    let keepCaret = true;
+
+    switch (command) {
+      case 'tableRowAbove':
+      case 'tableRowBelow': {
+        const tr = this.doc.createElement('tr');
+        tr.append(...Array.from(rows[r].cells, (ref) => this.emptyCell(ref)));
+        rows[r].insertAdjacentElement(command === 'tableRowAbove' ? 'beforebegin' : 'afterend', tr);
+        if (command === 'tableRowAbove') target = [r + 1, c];
+        break;
+      }
+      case 'tableColLeft':
+      case 'tableColRight':
+        for (const tr of rows) {
+          const ref = tr.cells[Math.min(c, tr.cells.length - 1)];
+          ref?.insertAdjacentElement(command === 'tableColLeft' ? 'beforebegin' : 'afterend', this.emptyCell(ref));
+        }
+        if (command === 'tableColLeft') target = [r, c + 1];
+        break;
+      case 'tableRowDelete':
+        if (rows.length === 1) return this.replaceNode(table, '');
+        rows[r].remove();
+        target = [Math.min(r, rows.length - 2), c];
+        keepCaret = false;
+        break;
+      case 'tableColDelete':
+        if (rows.every((tr) => tr.cells.length <= 1)) return this.replaceNode(table, '');
+        for (const tr of rows) {
+          tr.cells[c]?.remove();
+          if (!tr.cells.length) tr.remove();
+        }
+        keepCaret = false;
+        break;
+      case 'tableDelete':
+        return this.replaceNode(table, '');
+    }
+    for (const section of [copy.tHead, copy.tFoot, ...Array.from(copy.tBodies)]) {
+      if (section && !section.rows.length) section.remove();
+    }
+
+    const parent = table.parentNode!;
+    const index = Array.prototype.indexOf.call(parent.childNodes, table);
+    this.replaceNode(table, copy.outerHTML);
+    const next = parent.childNodes[index];
+    if (next?.nodeName !== 'TABLE') return;
+    const rowEl = (next as HTMLTableElement).rows[target[0]];
+    const cellEl = rowEl?.cells[Math.min(target[1], rowEl.cells.length - 1)];
+    if (cellEl) sel.collapse(...caretPoint(cellEl, keepCaret ? position : 0));
+  }
+
+  private emptyCell(ref: HTMLTableCellElement): HTMLTableCellElement {
+    const cell = this.doc.createElement(ref.localName as 'td' | 'th');
+    cell.innerHTML = '<br>';
+    return cell;
+  }
+
+  /**
+   * Replaces a node through the browser's undo history (an empty `html` leaves an empty paragraph).
+   * The range ends inside the node: when it ends after it, Chrome merges the result with a
+   * following list or swallows a following empty paragraph.
+   */
+  private replaceNode(node: Node, html: string): void {
+    const sel = this.doc.getSelection()!;
+    const range = this.doc.createRange();
+    range.setStartBefore(node);
+    range.setEnd(node, node.childNodes.length);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    this.doc.execCommand('insertHTML', false, html || '<p><br></p>');
+  }
+
+  /** Tab / Shift+Tab: moves the caret to the next / previous cell; Tab in the last cell adds a row. */
+  private moveToCell(cell: HTMLTableCellElement, step: 1 | -1): void {
+    const table = cell.closest('table')!;
+    const cells = Array.from(table.rows).flatMap((tr) => Array.from(tr.cells));
+    const next = cells[cells.indexOf(cell) + step];
+    if (next) {
+      const range = this.doc.createRange();
+      range.selectNodeContents(next);
+      range.collapse(false);
+      const sel = this.doc.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } else if (step === 1) {
+      void this.execute('tableRowBelow').then(() => {
+        const current = this.closestCell();
+        if (current) this.moveToCell(current, 1);
+      });
+    }
   }
 
   /**

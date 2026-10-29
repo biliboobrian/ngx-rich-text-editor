@@ -17,6 +17,7 @@
 }
 
 .nrte {
+  position: relative;
   font-family: var(--nrte-font);
   color: var(--nrte-text);
   background: var(--nrte-bg);
@@ -117,6 +118,17 @@
   fill: currentColor;
 }
 
+/* Floating bar shown while the caret is in a table. */
+.nrte__tablebar {
+  position: absolute;
+  z-index: 1;
+  flex-wrap: nowrap;
+  padding: 4px;
+  border: 1px solid var(--nrte-border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
 /* ---------------------------------------------------------- editable area */
 
 .nrte__content {
@@ -212,12 +224,15 @@
 
 .nrte__content table {
   border-collapse: collapse;
+  margin: 0 0 0.75em;
 }
 
 .nrte__content td,
 .nrte__content th {
+  min-width: 3em;
   border: 1px solid var(--nrte-border);
   padding: 4px 8px;
+  vertical-align: top;
 }
 
 /* -------------------------------------------------------------- source view */

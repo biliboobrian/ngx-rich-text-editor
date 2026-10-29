@@ -86,17 +86,23 @@ Just one-way input + output:
 
 `undo` `redo` `paragraph` `h1` `h2` `h3` `bold` `italic` `underline` `strikeThrough` `subscript`
 `superscript` `unorderedList` `orderedList` `indent` `outdent` `blockquote` `code` `alignLeft`
-`alignCenter` `alignRight` `alignJustify` `link` `unlink` `image` `horizontalRule` `clear` `source`
+`alignCenter` `alignRight` `alignJustify` `link` `unlink` `image` `table` `horizontalRule` `clear`
+`source`, and the table commands `tableRowAbove` `tableRowBelow` `tableColLeft` `tableColRight`
+`tableRowDelete` `tableColDelete` `tableDelete`.
 
 ```ts
 toolbar: RteToolbarItem[] = ['bold', 'italic', '|', 'unorderedList', 'orderedList', '|', 'link', 'source'];
 ```
 
 Keyboard: <kbd>Ctrl/⌘ + B / I / U</kbd> (native), <kbd>Ctrl/⌘ + K</kbd> insert link,
-<kbd>Tab</kbd> / <kbd>Shift + Tab</kbd> in a list nest / un-nest the item.
+<kbd>Tab</kbd> / <kbd>Shift + Tab</kbd> in a list nest / un-nest the item, in a table move to the
+next / previous cell (<kbd>Tab</kbd> in the last cell adds a row).
 
 Lists can be nested and mixed: indent an item, then switch the nested level to bullets or
 numbers — only that level changes (e.g. a bulleted sub-list inside a numbered list).
+
+`table` inserts a 3×3 table. While the caret is in a table, a floating bar offers the
+row / column / delete commands (`RTE_TABLE_TOOLBAR`). All list and table edits can be undone.
 
 ## Public methods
 

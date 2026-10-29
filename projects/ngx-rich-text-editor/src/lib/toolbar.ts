@@ -25,6 +25,14 @@ export type RteCommand =
   | 'link'
   | 'unlink'
   | 'image'
+  | 'table'
+  | 'tableRowAbove'
+  | 'tableRowBelow'
+  | 'tableColLeft'
+  | 'tableColRight'
+  | 'tableRowDelete'
+  | 'tableColDelete'
+  | 'tableDelete'
   | 'horizontalRule'
   | 'clear'
   | 'source';
@@ -44,8 +52,15 @@ export const RTE_DEFAULT_TOOLBAR: readonly RteToolbarItem[] = [
   'bold', 'italic', 'underline', 'strikeThrough', '|',
   'unorderedList', 'orderedList', 'blockquote', 'code', '|',
   'alignLeft', 'alignCenter', 'alignRight', 'alignJustify', '|',
-  'link', 'unlink', 'image', 'horizontalRule', '|',
+  'link', 'unlink', 'image', 'table', 'horizontalRule', '|',
   'clear', 'source',
+];
+
+/** Buttons of the floating bar shown while the caret is in a table. */
+export const RTE_TABLE_TOOLBAR: readonly RteToolbarItem[] = [
+  'tableRowAbove', 'tableRowBelow', 'tableRowDelete', '|',
+  'tableColLeft', 'tableColRight', 'tableColDelete', '|',
+  'tableDelete',
 ];
 
 /** Default (English) tooltips. Override any of them with the `labels` input. */
@@ -75,6 +90,14 @@ export const RTE_DEFAULT_LABELS: Readonly<Record<RteCommand, string>> = {
   link: 'Insert link',
   unlink: 'Remove link',
   image: 'Insert image',
+  table: 'Insert table',
+  tableRowAbove: 'Insert row above',
+  tableRowBelow: 'Insert row below',
+  tableColLeft: 'Insert column left',
+  tableColRight: 'Insert column right',
+  tableRowDelete: 'Delete row',
+  tableColDelete: 'Delete column',
+  tableDelete: 'Delete table',
   horizontalRule: 'Horizontal line',
   clear: 'Clear formatting',
   source: 'HTML source',
@@ -107,6 +130,14 @@ export const RTE_LABELS_FR: Readonly<Record<RteCommand, string>> = {
   link: 'Insérer un lien',
   unlink: 'Supprimer le lien',
   image: 'Insérer une image',
+  table: 'Insérer un tableau',
+  tableRowAbove: 'Insérer une ligne au-dessus',
+  tableRowBelow: 'Insérer une ligne en dessous',
+  tableColLeft: 'Insérer une colonne à gauche',
+  tableColRight: 'Insérer une colonne à droite',
+  tableRowDelete: 'Supprimer la ligne',
+  tableColDelete: 'Supprimer la colonne',
+  tableDelete: 'Supprimer le tableau',
   horizontalRule: 'Ligne horizontale',
   clear: 'Effacer la mise en forme',
   source: 'Code HTML',

@@ -1,4 +1,5 @@
 <div
+  #root
   class="nrte"
   [class.nrte--focused]="focused()"
   [class.nrte--disabled]="isDisabled()"
@@ -10,68 +11,25 @@
         @if (item === '|') {
           <span class="nrte__sep" aria-hidden="true"></span>
         } @else {
-          <button
-            type="button"
-            class="nrte__btn"
-            [class.nrte__btn--active]="isActive(item)"
-            [attr.aria-pressed]="isToggle(item) ? isActive(item) : null"
-            [attr.aria-label]="titleOf(item)"
-            [title]="titleOf(item)"
-            [disabled]="isDisabled() || (sourceMode() && item !== 'source')"
-            (mousedown)="$event.preventDefault()"
-            (click)="execute(asCommand(item))"
-          >
-            @switch (item) {
-              @case ('bold') { <b class="nrte__txt">B</b> }
-              @case ('italic') { <i class="nrte__txt nrte__txt--serif">I</i> }
-              @case ('underline') { <u class="nrte__txt">U</u> }
-              @case ('strikeThrough') { <s class="nrte__txt">S</s> }
-              @case ('subscript') { <span class="nrte__txt">X<sub>2</sub></span> }
-              @case ('superscript') { <span class="nrte__txt">X<sup>2</sup></span> }
-              @case ('paragraph') { <span class="nrte__txt">¶</span> }
-              @case ('h1') { <span class="nrte__txt nrte__txt--sm">H1</span> }
-              @case ('h2') { <span class="nrte__txt nrte__txt--sm">H2</span> }
-              @case ('h3') { <span class="nrte__txt nrte__txt--sm">H3</span> }
-              @case ('clear') { <span class="nrte__txt nrte__txt--sm">T<sub>x</sub></span> }
-              @default {
-                <svg class="nrte__icon" viewBox="0 0 24 24" aria-hidden="true">
-                  @switch (item) {
-                    @case ('undo') { <svg:polyline points="9 14 4 9 9 4" /><svg:path d="M20 20v-7a4 4 0 0 0-4-4H4" /> }
-                    @case ('redo') { <svg:polyline points="15 14 20 9 15 4" /><svg:path d="M4 20v-7a4 4 0 0 1 4-4h12" /> }
-                    @case ('unorderedList') {
-                      <svg:path d="M9 6h11M9 12h11M9 18h11" />
-                      <svg:circle cx="4.5" cy="6" r="1" class="nrte__fill" /><svg:circle cx="4.5" cy="12" r="1" class="nrte__fill" /><svg:circle cx="4.5" cy="18" r="1" class="nrte__fill" />
-                    }
-                    @case ('orderedList') { <svg:path d="M10 6h10M10 12h10M10 18h10M4 4h1v4M3.5 8h2.5M3.5 11.5h2.5L3.5 15h2.5M3.5 17.5h2.5v3h-2.5M4 19h2" /> }
-                    @case ('indent') { <svg:path d="M11 6h9M11 12h9M11 18h9M4 8l3 2.5L4 13" /> }
-                    @case ('outdent') { <svg:path d="M11 6h9M11 12h9M11 18h9M7 8l-3 2.5L7 13" /> }
-                    @case ('blockquote') { <svg:path d="M7 7H4v5h3l-1.5 5M17 7h-3v5h3l-1.5 5" /> }
-                    @case ('code') { <svg:polyline points="16 18 22 12 16 6" /><svg:polyline points="8 6 2 12 8 18" /> }
-                    @case ('alignLeft') { <svg:path d="M4 6h16M4 10h10M4 14h16M4 18h10" /> }
-                    @case ('alignCenter') { <svg:path d="M4 6h16M7 10h10M4 14h16M7 18h10" /> }
-                    @case ('alignRight') { <svg:path d="M4 6h16M10 10h10M4 14h16M10 18h10" /> }
-                    @case ('alignJustify') { <svg:path d="M4 6h16M4 10h16M4 14h16M4 18h16" /> }
-                    @case ('link') {
-                      <svg:path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                      <svg:path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                    }
-                    @case ('unlink') {
-                      <svg:path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                      <svg:path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                      <svg:path d="M3 3l18 18" />
-                    }
-                    @case ('image') {
-                      <svg:rect x="3" y="3" width="18" height="18" rx="2" />
-                      <svg:circle cx="8.5" cy="8.5" r="1.5" />
-                      <svg:polyline points="21 15 16 10 5 21" />
-                    }
-                    @case ('horizontalRule') { <svg:path d="M3 12h18" /> }
-                    @case ('source') { <svg:path d="M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12" /> }
-                  }
-                </svg>
-              }
-            }
-          </button>
+          <ng-container *ngTemplateOutlet="buttonTpl; context: { $implicit: item }" />
+        }
+      }
+    </div>
+  }
+
+  @if (focused() && tableBar(); as bar) {
+    <div
+      class="nrte__toolbar nrte__tablebar"
+      role="toolbar"
+      aria-label="Table"
+      [style.top.px]="bar.top"
+      [style.left.px]="bar.left"
+    >
+      @for (item of tableToolbar; track $index) {
+        @if (item === '|') {
+          <span class="nrte__sep" aria-hidden="true"></span>
+        } @else {
+          <ng-container *ngTemplateOutlet="buttonTpl; context: { $implicit: item }" />
         }
       }
     </div>
@@ -96,6 +54,7 @@
     (focus)="onFocus()"
     (blur)="onBlur()"
     (keydown)="onKeydown($event)"
+    (scroll)="updateTableBar()"
   ></div>
 
   @if (sourceMode()) {
@@ -111,3 +70,76 @@
     ></textarea>
   }
 </div>
+
+<ng-template #buttonTpl let-item>
+  <button
+    type="button"
+    class="nrte__btn"
+    [class.nrte__btn--active]="isActive(item)"
+    [attr.aria-pressed]="isToggle(item) ? isActive(item) : null"
+    [attr.aria-label]="titleOf(item)"
+    [title]="titleOf(item)"
+    [disabled]="isDisabled() || (sourceMode() && item !== 'source')"
+    (mousedown)="$event.preventDefault()"
+    (click)="execute(asCommand(item))"
+  >
+    @switch (item) {
+      @case ('bold') { <b class="nrte__txt">B</b> }
+      @case ('italic') { <i class="nrte__txt nrte__txt--serif">I</i> }
+      @case ('underline') { <u class="nrte__txt">U</u> }
+      @case ('strikeThrough') { <s class="nrte__txt">S</s> }
+      @case ('subscript') { <span class="nrte__txt">X<sub>2</sub></span> }
+      @case ('superscript') { <span class="nrte__txt">X<sup>2</sup></span> }
+      @case ('paragraph') { <span class="nrte__txt">¶</span> }
+      @case ('h1') { <span class="nrte__txt nrte__txt--sm">H1</span> }
+      @case ('h2') { <span class="nrte__txt nrte__txt--sm">H2</span> }
+      @case ('h3') { <span class="nrte__txt nrte__txt--sm">H3</span> }
+      @case ('clear') { <span class="nrte__txt nrte__txt--sm">T<sub>x</sub></span> }
+      @default {
+        <svg class="nrte__icon" viewBox="0 0 24 24" aria-hidden="true">
+          @switch (item) {
+            @case ('undo') { <svg:polyline points="9 14 4 9 9 4" /><svg:path d="M20 20v-7a4 4 0 0 0-4-4H4" /> }
+            @case ('redo') { <svg:polyline points="15 14 20 9 15 4" /><svg:path d="M4 20v-7a4 4 0 0 1 4-4h12" /> }
+            @case ('unorderedList') {
+              <svg:path d="M9 6h11M9 12h11M9 18h11" />
+              <svg:circle cx="4.5" cy="6" r="1" class="nrte__fill" /><svg:circle cx="4.5" cy="12" r="1" class="nrte__fill" /><svg:circle cx="4.5" cy="18" r="1" class="nrte__fill" />
+            }
+            @case ('orderedList') { <svg:path d="M10 6h10M10 12h10M10 18h10M4 4h1v4M3.5 8h2.5M3.5 11.5h2.5L3.5 15h2.5M3.5 17.5h2.5v3h-2.5M4 19h2" /> }
+            @case ('indent') { <svg:path d="M11 6h9M11 12h9M11 18h9M4 8l3 2.5L4 13" /> }
+            @case ('outdent') { <svg:path d="M11 6h9M11 12h9M11 18h9M7 8l-3 2.5L7 13" /> }
+            @case ('blockquote') { <svg:path d="M7 7H4v5h3l-1.5 5M17 7h-3v5h3l-1.5 5" /> }
+            @case ('code') { <svg:polyline points="16 18 22 12 16 6" /><svg:polyline points="8 6 2 12 8 18" /> }
+            @case ('alignLeft') { <svg:path d="M4 6h16M4 10h10M4 14h16M4 18h10" /> }
+            @case ('alignCenter') { <svg:path d="M4 6h16M7 10h10M4 14h16M7 18h10" /> }
+            @case ('alignRight') { <svg:path d="M4 6h16M10 10h10M4 14h16M10 18h10" /> }
+            @case ('alignJustify') { <svg:path d="M4 6h16M4 10h16M4 14h16M4 18h16" /> }
+            @case ('link') {
+              <svg:path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <svg:path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            }
+            @case ('unlink') {
+              <svg:path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <svg:path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              <svg:path d="M3 3l18 18" />
+            }
+            @case ('image') {
+              <svg:rect x="3" y="3" width="18" height="18" rx="2" />
+              <svg:circle cx="8.5" cy="8.5" r="1.5" />
+              <svg:polyline points="21 15 16 10 5 21" />
+            }
+            @case ('horizontalRule') { <svg:path d="M3 12h18" /> }
+            @case ('table') { <svg:rect x="3" y="4" width="18" height="16" rx="2" /><svg:path d="M3 10h18M3 15h18M9 4v16M15 4v16" /> }
+            @case ('tableRowAbove') { <svg:rect x="3" y="11" width="18" height="9" rx="1" /><svg:path d="M9 11v9M15 11v9M12 2v6M9 5h6" /> }
+            @case ('tableRowBelow') { <svg:rect x="3" y="4" width="18" height="9" rx="1" /><svg:path d="M9 4v9M15 4v9M12 16v6M9 19h6" /> }
+            @case ('tableColLeft') { <svg:rect x="11" y="3" width="10" height="18" rx="1" /><svg:path d="M11 9h10M11 15h10M5 9v6M2 12h6" /> }
+            @case ('tableColRight') { <svg:rect x="3" y="3" width="10" height="18" rx="1" /><svg:path d="M3 9h10M3 15h10M19 9v6M16 12h6" /> }
+            @case ('tableRowDelete') { <svg:rect x="3" y="3" width="18" height="8" rx="1" /><svg:path d="M9 3v8M15 3v8M9.5 14.5l5 5M14.5 14.5l-5 5" /> }
+            @case ('tableColDelete') { <svg:rect x="3" y="3" width="8" height="18" rx="1" /><svg:path d="M3 9h8M3 15h8M14.5 9.5l5 5M19.5 9.5l-5 5" /> }
+            @case ('tableDelete') { <svg:path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /> }
+            @case ('source') { <svg:path d="M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12" /> }
+          }
+        </svg>
+      }
+    }
+  </button>
+</ng-template>
