@@ -76,7 +76,27 @@ const TABLE_COMMANDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
 /** Height of the floating table bar, used to place it above the table. */
 const TABLE_BAR_HEIGHT = 38;
 
-type RteColorKind = 'textColor' | 'backgroundColor';
+/** What a color applies to: the selected text, or the cells of a table. */
+export type RteColorKind = 'textColor' | 'backgroundColor' | 'tableTextColor' | 'tableBackground';
+
+/** Cells affected by a table color: the cell holding the caret, its row or its column. */
+export type RteTableScope = 'cell' | 'row' | 'column';
+
+const COLOR_KINDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
+  'textColor', 'backgroundColor', 'tableTextColor', 'tableBackground',
+]);
+
+const SCOPE_LABELS: Record<RteTableScope, RteLabelKey> = {
+  cell: 'scopeCell',
+  row: 'scopeRow',
+  column: 'scopeColumn',
+};
+
+/** Border widths offered for tables (px); 0 hides the borders. */
+const BORDER_WIDTHS = [0, 1, 2, 3];
+
+/** Narrowest width a column can be dragged to (px). */
+const MIN_COL_WIDTH = 30;
 
 const STATE_COMMANDS: RteCommand[] = [
   'bold', 'italic', 'underline', 'strikeThrough', 'subscript', 'superscript',
@@ -140,6 +160,37 @@ function caretPoint(root: Node, position: number): [Node, number] {
     }
   }
   return [root, root.childNodes.length];
+}
+
+/** Widths (px) of the `<col>` elements of a table with fixed column widths, or null. */
+function columnWidths(table: HTMLTableElement): number[] | null {
+  const group = Array.from(table.children).find((n) => n.localName === 'colgroup');
+  return group ? Array.from(group.children, (col) => parseFloat((col as HTMLElement).style.width) || 100) : null;
+}
+
+/** Rendered widths of the columns, read on the row with the most cells. */
+function measureColumns(table: HTMLTableElement): number[] {
+  const row = Array.from(table.rows).reduce((a, b) => (b.cells.length > a.cells.length ? b : a));
+  return Array.from(row.cells, (cell) => cell.getBoundingClientRect().width);
+}
+
+/** Fixes the column widths of a table (`<colgroup>` + fixed layout); `null` restores automatic widths. */
+function setColumnWidths(table: HTMLTableElement, widths: number[] | null): void {
+  for (const group of Array.from(table.children).filter((n) => n.localName === 'colgroup')) group.remove();
+  table.style.removeProperty('table-layout');
+  table.style.removeProperty('width');
+  if (widths) {
+    const group = table.ownerDocument.createElement('colgroup');
+    for (const width of widths) {
+      const col = table.ownerDocument.createElement('col');
+      col.style.width = `${Math.round(width)}px`;
+      group.append(col);
+    }
+    table.insertBefore(group, table.caption ? table.caption.nextSibling : table.firstChild);
+    table.style.tableLayout = 'fixed';
+    table.style.width = `${Math.round(widths.reduce((sum, w) => sum + w, 0))}px`;
+  }
+  if (!table.getAttribute('style')) table.removeAttribute('style');
 }
 
 function escapeHtml(text: string): string {
@@ -218,13 +269,23 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   /** Position of the floating table bar, or null when the caret isn't in a table. */
   protected readonly tableBar = signal<{ top: number; left: number } | null>(null);
   protected readonly tableToolbar = RTE_TABLE_TOOLBAR;
-  /** Open color palette and its position, below its toolbar button. */
-  protected readonly palette = signal<{ kind: RteColorKind; top: number; left: number } | null>(null);
+  /** Open popup (color palette or table borders) and its position, below its toolbar button. */
+  protected readonly palette = signal<{ kind: RteColorKind | 'tableBorder'; top: number; left: number } | null>(null);
   /** Last color picked for each kind, shown under the toolbar buttons. */
   protected readonly lastColors = signal<Record<RteColorKind, string>>({
     textColor: '#c92a2a',
     backgroundColor: '#fff3bf',
+    tableTextColor: '#c92a2a',
+    tableBackground: '#fff3bf',
   });
+  /** Cells a table color applies to, chosen in the palette. */
+  protected readonly tableScope = signal<RteTableScope>('cell');
+  protected readonly tableScopes = Object.keys(SCOPE_LABELS) as RteTableScope[];
+  protected readonly borderWidths = BORDER_WIDTHS;
+  /** Pointer over a column border: shows the resize cursor. */
+  protected readonly colResizeHover = signal(false);
+  /** Vertical guide shown while a column border is dragged. */
+  protected readonly colGuide = signal<{ left: number; top: number; height: number } | null>(null);
   private readonly formDisabled = signal(false);
 
   protected readonly isDisabled = computed(() => this.readonly() || this.formDisabled());
@@ -292,17 +353,40 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     this.syncFromEditor();
   }
 
-  /** Applies a text or background color to the selection; `null` removes it. */
-  setColor(kind: RteColorKind, color: string | null): void {
+  /**
+   * Applies a color; `null` removes it. `textColor` / `backgroundColor` color the selected text,
+   * `tableTextColor` / `tableBackground` the cells of the table holding the caret (`scope`).
+   */
+  setColor(kind: RteColorKind, color: string | null, scope: RteTableScope = this.tableScope()): void {
     if (this.isDisabled() || this.sourceMode()) return;
     this.palette.set(null);
     this.restoreSelection();
-    // CSS mode gives `<span style="color: …">` (kept by the sanitizer) instead of `<font>`
-    this.doc.execCommand('styleWithCSS', false, 'true');
-    if (kind === 'textColor') this.doc.execCommand('foreColor', false, color ?? 'inherit');
-    else this.doc.execCommand('hiliteColor', false, color ?? 'transparent');
-    this.doc.execCommand('styleWithCSS', false, 'false');
+    if (kind === 'tableTextColor' || kind === 'tableBackground') {
+      const prop = kind === 'tableTextColor' ? 'color' : 'background-color';
+      this.styleCells(scope, (cell) => (color ? cell.style.setProperty(prop, color) : cell.style.removeProperty(prop)));
+    } else {
+      // CSS mode gives `<span style="color: …">` (kept by the sanitizer) instead of `<font>`
+      this.doc.execCommand('styleWithCSS', false, 'true');
+      if (kind === 'textColor') this.doc.execCommand('foreColor', false, color ?? 'inherit');
+      else this.doc.execCommand('hiliteColor', false, color ?? 'transparent');
+      this.doc.execCommand('styleWithCSS', false, 'false');
+    }
     if (color) this.lastColors.update((colors) => ({ ...colors, [kind]: color }));
+    this.syncFromEditor();
+    this.updateActiveStates();
+  }
+
+  /** Sets the border width (px) of every cell of the table holding the caret; 0 hides the borders. */
+  setTableBorder(width: number): void {
+    if (this.isDisabled() || this.sourceMode()) return;
+    this.palette.set(null);
+    this.restoreSelection();
+    const color = getComputedStyle(this.root().nativeElement).getPropertyValue('--nrte-border').trim() || '#d0d7de';
+    this.styleCells('table', (cell) => {
+      cell.style.removeProperty('border');
+      if (width) cell.style.border = `${width}px solid ${color}`;
+      else cell.style.borderStyle = 'none';
+    });
     this.syncFromEditor();
     this.updateActiveStates();
   }
@@ -315,8 +399,8 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       return;
     }
     if (this.sourceMode()) return;
-    if (command === 'textColor' || command === 'backgroundColor') {
-      this.togglePalette(command);
+    if (COLOR_KINDS.has(command) || command === 'tableBorder') {
+      this.togglePalette(command as RteColorKind | 'tableBorder');
       return;
     }
 
@@ -376,8 +460,17 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     return item !== '|' && RTE_TOGGLE_COMMANDS.has(item);
   }
 
+  /** Commands opening a popup (color palettes, table borders). */
   protected isColor(item: RteToolbarItem): boolean {
-    return item === 'textColor' || item === 'backgroundColor';
+    return item !== '|' && (COLOR_KINDS.has(item) || item === 'tableBorder');
+  }
+
+  protected swatchesOf(kind: RteColorKind | 'tableBorder'): readonly string[] {
+    return kind === 'textColor' || kind === 'tableTextColor' ? this.textColors() : this.backgroundColors();
+  }
+
+  protected scopeLabel(scope: RteTableScope): string {
+    return this.titles()[SCOPE_LABELS[scope]];
   }
 
   protected closePalette(): void {
@@ -448,6 +541,65 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       event.preventDefault();
       void this.execute('link');
     }
+  }
+
+  // ------------------------------------------------------- column resizing
+
+  protected onContentMouseMove(event: MouseEvent): void {
+    if (!this.colGuide()) this.colResizeHover.set(!!this.resizeTarget(event));
+  }
+
+  /** Dragging a column border shows a guide; the new width is applied on release. */
+  protected onContentMouseDown(event: MouseEvent): void {
+    const target = this.resizeTarget(event);
+    if (!target || event.button !== 0) return;
+    event.preventDefault();
+    const { table, col } = target;
+    const widths = columnWidths(table) ?? measureColumns(table);
+    const startX = event.clientX;
+    const widthAt = (x: number) => Math.max(MIN_COL_WIDTH, widths[col] + x - startX);
+    const move = (e: MouseEvent) => {
+      const box = this.root().nativeElement.getBoundingClientRect();
+      const rect = table.getBoundingClientRect();
+      const left = startX + widthAt(e.clientX) - widths[col] - box.left;
+      this.colGuide.set({ left, top: rect.top - box.top, height: rect.height });
+    };
+    const up = (e: MouseEvent) => {
+      this.doc.removeEventListener('mousemove', move);
+      this.doc.removeEventListener('mouseup', up);
+      this.colGuide.set(null);
+      const width = widthAt(e.clientX);
+      if (width === widths[col]) return;
+      widths[col] = width;
+      this.rewriteTable(() => ({ widths }), table);
+      this.syncFromEditor();
+      this.updateActiveStates();
+    };
+    move(event);
+    this.doc.addEventListener('mousemove', move);
+    this.doc.addEventListener('mouseup', up);
+  }
+
+  /** Double-click on a column border: back to automatic column widths. */
+  protected onContentDblClick(event: MouseEvent): void {
+    const target = this.resizeTarget(event);
+    if (!target || !columnWidths(target.table)) return;
+    event.preventDefault();
+    this.rewriteTable(() => ({ widths: null }), target.table);
+    this.syncFromEditor();
+    this.updateActiveStates();
+  }
+
+  /** Column whose right border is under the pointer. */
+  private resizeTarget(event: MouseEvent): { table: HTMLTableElement; col: number } | null {
+    if (this.isDisabled()) return null;
+    const cell = (event.target as Element).closest?.('td, th') as HTMLTableCellElement | null;
+    if (!cell || !this.editable().nativeElement.contains(cell)) return null;
+    const table = cell.closest('table')!;
+    const rect = cell.getBoundingClientRect();
+    if (event.clientX >= rect.right - 5) return { table, col: cell.cellIndex };
+    if (event.clientX <= rect.left + 5 && cell.cellIndex > 0) return { table, col: cell.cellIndex - 1 };
+    return null;
   }
 
   protected onSourceInput(event: Event): void {
@@ -590,9 +742,9 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     return null;
   }
 
-  /** Opens the color palette below its toolbar button (or closes it if already open). */
-  private togglePalette(kind: RteColorKind): void {
-    const button = this.root().nativeElement.querySelector(`.nrte__toolbar--main [data-command="${kind}"]`);
+  /** Opens a popup below its toolbar button (or closes it if already open). */
+  private togglePalette(kind: RteColorKind | 'tableBorder'): void {
+    const button = this.root().nativeElement.querySelector(`[data-command="${kind}"]`);
     if (this.palette()?.kind === kind || !button) {
       this.palette.set(null);
       return;
@@ -629,59 +781,35 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   /**
-   * Row/column commands. Like lists, the table is edited on a copy and written back with
-   * `insertHTML` so the change can be undone.
+   * Edits the table holding the caret (or `table`): `mutate` changes a copy, which is written back
+   * with `insertHTML` so the change can be undone. `mutate` may return the cell that gets the caret
+   * as [row, column, keep the caret offset], `false` to delete the table, or `{ widths }` to set
+   * the column widths (`null` for automatic widths).
    */
-  private editTable(command: RteCommand): void {
+  private rewriteTable(
+    mutate: (
+      copy: HTMLTableElement,
+      row: number,
+      col: number,
+    ) => [number, number, boolean] | false | { widths: number[] | null } | void,
+    table?: HTMLTableElement,
+  ): void {
     this.restoreSelection();
-    const cell = this.closestCell();
-    if (!cell) return;
-    const table = cell.closest('table')!;
-    const r = (cell.parentElement as HTMLTableRowElement).rowIndex;
-    const c = cell.cellIndex;
+    let cell = this.closestCell();
+    table ??= cell?.closest('table') ?? undefined;
+    if (!table) return;
+    if (cell?.closest('table') !== table) cell = null;
+    const r = cell ? (cell.parentElement as HTMLTableRowElement).rowIndex : 0;
+    const c = cell ? cell.cellIndex : 0;
     const sel = this.doc.getSelection()!;
     const range = sel.getRangeAt(0);
-    const position = caretPosition(cell, range.startContainer, range.startOffset);
+    const position = cell ? caretPosition(cell, range.startContainer, range.startOffset) : 0;
     const copy = table.cloneNode(true) as HTMLTableElement;
-    const rows = Array.from(copy.rows);
-    // cell that gets the caret afterwards, and whether the caret keeps its place in it
-    let target: [number, number] = [r, c];
-    let keepCaret = true;
 
-    switch (command) {
-      case 'tableRowAbove':
-      case 'tableRowBelow': {
-        const tr = this.doc.createElement('tr');
-        tr.append(...Array.from(rows[r].cells, (ref) => this.emptyCell(ref)));
-        rows[r].insertAdjacentElement(command === 'tableRowAbove' ? 'beforebegin' : 'afterend', tr);
-        if (command === 'tableRowAbove') target = [r + 1, c];
-        break;
-      }
-      case 'tableColLeft':
-      case 'tableColRight':
-        for (const tr of rows) {
-          const ref = tr.cells[Math.min(c, tr.cells.length - 1)];
-          ref?.insertAdjacentElement(command === 'tableColLeft' ? 'beforebegin' : 'afterend', this.emptyCell(ref));
-        }
-        if (command === 'tableColLeft') target = [r, c + 1];
-        break;
-      case 'tableRowDelete':
-        if (rows.length === 1) return this.replaceNode(table, '');
-        rows[r].remove();
-        target = [Math.min(r, rows.length - 2), c];
-        keepCaret = false;
-        break;
-      case 'tableColDelete':
-        if (rows.every((tr) => tr.cells.length <= 1)) return this.replaceNode(table, '');
-        for (const tr of rows) {
-          tr.cells[c]?.remove();
-          if (!tr.cells.length) tr.remove();
-        }
-        keepCaret = false;
-        break;
-      case 'tableDelete':
-        return this.replaceNode(table, '');
-    }
+    const result = mutate(copy, r, c);
+    if (result === false) return this.replaceNode(table, '');
+    if (result && !Array.isArray(result)) setColumnWidths(copy, result.widths);
+    const [targetRow, targetCol, keepCaret] = Array.isArray(result) ? result : [r, c, !!cell];
     for (const section of [copy.tHead, copy.tFoot, ...Array.from(copy.tBodies)]) {
       if (section && !section.rows.length) section.remove();
     }
@@ -691,13 +819,77 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     this.replaceNode(table, copy.outerHTML);
     const next = parent.childNodes[index];
     if (next?.nodeName !== 'TABLE') return;
-    const rowEl = (next as HTMLTableElement).rows[target[0]];
-    const cellEl = rowEl?.cells[Math.min(target[1], rowEl.cells.length - 1)];
+    const rowEl = (next as HTMLTableElement).rows[targetRow];
+    const cellEl = rowEl?.cells[Math.min(targetCol, rowEl.cells.length - 1)];
     if (cellEl) sel.collapse(...caretPoint(cellEl, keepCaret ? position : 0));
   }
 
+  /** Row/column commands. */
+  private editTable(command: RteCommand): void {
+    this.rewriteTable((copy, r, c) => {
+      const rows = Array.from(copy.rows);
+      const widths = columnWidths(copy);
+      switch (command) {
+        case 'tableRowAbove':
+        case 'tableRowBelow': {
+          const tr = this.doc.createElement('tr');
+          tr.append(...Array.from(rows[r].cells, (ref) => this.emptyCell(ref)));
+          rows[r].insertAdjacentElement(command === 'tableRowAbove' ? 'beforebegin' : 'afterend', tr);
+          return command === 'tableRowAbove' ? [r + 1, c, true] : undefined;
+        }
+        case 'tableColLeft':
+        case 'tableColRight': {
+          const left = command === 'tableColLeft';
+          for (const tr of rows) {
+            const ref = tr.cells[Math.min(c, tr.cells.length - 1)];
+            ref?.insertAdjacentElement(left ? 'beforebegin' : 'afterend', this.emptyCell(ref));
+          }
+          // a fixed layout gets a new column as wide as the current one
+          widths?.splice(left ? c : c + 1, 0, widths[Math.min(c, widths.length - 1)]);
+          if (widths) setColumnWidths(copy, widths);
+          return left ? [r, c + 1, true] : undefined;
+        }
+        case 'tableRowDelete':
+          if (rows.length === 1) return false;
+          rows[r].remove();
+          return [Math.min(r, rows.length - 2), c, false];
+        case 'tableColDelete':
+          if (rows.every((tr) => tr.cells.length <= 1)) return false;
+          for (const tr of rows) {
+            tr.cells[c]?.remove();
+            if (!tr.cells.length) tr.remove();
+          }
+          widths?.splice(c, 1);
+          if (widths) setColumnWidths(copy, widths);
+          return [r, c, false];
+        default:
+          return false; // tableDelete
+      }
+    });
+  }
+
+  /** Applies `apply` to the cell holding the caret, its row, its column or the whole table. */
+  private styleCells(scope: RteTableScope | 'table', apply: (cell: HTMLTableCellElement) => void): void {
+    this.rewriteTable((copy, r, c) => {
+      const rows = Array.from(copy.rows);
+      const cells =
+        scope === 'cell' ? [rows[r].cells[c]]
+        : scope === 'row' ? Array.from(rows[r].cells)
+        : scope === 'column' ? rows.map((tr) => tr.cells[c])
+        : rows.flatMap((tr) => Array.from(tr.cells));
+      for (const cell of cells) {
+        if (!cell) continue;
+        apply(cell);
+        if (!cell.getAttribute('style')) cell.removeAttribute('style');
+      }
+    });
+  }
+
+  /** New empty cell with the same tag and formatting (borders, colors) as `ref`. */
   private emptyCell(ref: HTMLTableCellElement): HTMLTableCellElement {
     const cell = this.doc.createElement(ref.localName as 'td' | 'th');
+    const style = ref.getAttribute('style');
+    if (style) cell.setAttribute('style', style);
     cell.innerHTML = '<br>';
     return cell;
   }

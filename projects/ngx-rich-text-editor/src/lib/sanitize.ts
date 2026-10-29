@@ -51,6 +51,8 @@ const TAG_ATTRS: Record<string, Set<string>> = {
 const ALLOWED_STYLES = new Set([
   'text-align', 'font-weight', 'font-style', 'text-decoration', 'text-decoration-line',
   'color', 'background-color', 'margin-left', 'padding-left',
+  // table layout and borders
+  'width', 'table-layout', 'border', 'border-width', 'border-style', 'border-color',
 ]);
 
 const SAFE_URL = /^(?:https?:|mailto:|tel:|#|\/|\.{1,2}\/|[^:/?#]*(?:[/?#]|$))/i;

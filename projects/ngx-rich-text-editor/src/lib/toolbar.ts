@@ -35,6 +35,9 @@ export type RteCommand =
   | 'tableRowDelete'
   | 'tableColDelete'
   | 'tableDelete'
+  | 'tableTextColor'
+  | 'tableBackground'
+  | 'tableBorder'
   | 'horizontalRule'
   | 'clear'
   | 'source';
@@ -43,7 +46,7 @@ export type RteCommand =
 export type RteToolbarItem = RteCommand | '|';
 
 /** Texts of the editor: command tooltips plus the color palette buttons. */
-export type RteLabelKey = RteCommand | 'colorNone' | 'colorCustom';
+export type RteLabelKey = RteCommand | 'colorNone' | 'colorCustom' | 'scopeCell' | 'scopeRow' | 'scopeColumn';
 
 /** Swatches of the text color palette. Override with the `textColors` input. */
 export const RTE_TEXT_COLORS: readonly string[] = [
@@ -77,6 +80,7 @@ export const RTE_DEFAULT_TOOLBAR: readonly RteToolbarItem[] = [
 export const RTE_TABLE_TOOLBAR: readonly RteToolbarItem[] = [
   'tableRowAbove', 'tableRowBelow', 'tableRowDelete', '|',
   'tableColLeft', 'tableColRight', 'tableColDelete', '|',
+  'tableTextColor', 'tableBackground', 'tableBorder', '|',
   'tableDelete',
 ];
 
@@ -96,6 +100,9 @@ export const RTE_DEFAULT_LABELS: Readonly<Record<RteLabelKey, string>> = {
   backgroundColor: 'Background color',
   colorNone: 'None',
   colorCustom: 'Custom…',
+  scopeCell: 'Cell',
+  scopeRow: 'Row',
+  scopeColumn: 'Column',
   subscript: 'Subscript',
   superscript: 'Superscript',
   unorderedList: 'Bulleted list',
@@ -119,6 +126,9 @@ export const RTE_DEFAULT_LABELS: Readonly<Record<RteLabelKey, string>> = {
   tableRowDelete: 'Delete row',
   tableColDelete: 'Delete column',
   tableDelete: 'Delete table',
+  tableTextColor: 'Cell text color',
+  tableBackground: 'Cell background color',
+  tableBorder: 'Borders',
   horizontalRule: 'Horizontal line',
   clear: 'Clear formatting',
   source: 'HTML source',
@@ -140,6 +150,9 @@ export const RTE_LABELS_FR: Readonly<Record<RteLabelKey, string>> = {
   backgroundColor: 'Couleur de fond',
   colorNone: 'Aucune',
   colorCustom: 'Personnalisée…',
+  scopeCell: 'Cellule',
+  scopeRow: 'Ligne',
+  scopeColumn: 'Colonne',
   subscript: 'Indice',
   superscript: 'Exposant',
   unorderedList: 'Liste à puces',
@@ -163,6 +176,9 @@ export const RTE_LABELS_FR: Readonly<Record<RteLabelKey, string>> = {
   tableRowDelete: 'Supprimer la ligne',
   tableColDelete: 'Supprimer la colonne',
   tableDelete: 'Supprimer le tableau',
+  tableTextColor: 'Couleur du texte des cellules',
+  tableBackground: 'Couleur de fond des cellules',
+  tableBorder: 'Bordures',
   horizontalRule: 'Ligne horizontale',
   clear: 'Effacer la mise en forme',
   source: 'Code HTML',

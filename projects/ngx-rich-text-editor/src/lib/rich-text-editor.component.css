@@ -204,6 +204,56 @@
   cursor: pointer;
 }
 
+/* Table color scope (cell / row / column) and border widths. */
+.nrte__scopes {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.nrte__scopes .nrte__btn {
+  flex: 1;
+  font-size: 12px;
+}
+
+.nrte__borders {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nrte__border-option {
+  justify-content: flex-start;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.nrte__border-line {
+  width: 48px;
+  border-top: 0 solid currentColor;
+}
+
+.nrte__border-line--none {
+  border-top: 1px dashed currentColor;
+  opacity: 0.5;
+}
+
+/* Column resizing */
+.nrte__content--col-resize,
+.nrte__content--col-resize td,
+.nrte__content--col-resize th {
+  cursor: col-resize;
+}
+
+.nrte__col-guide {
+  position: absolute;
+  z-index: 1;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--nrte-accent);
+  pointer-events: none;
+}
+
 /* Floating bar shown while the caret is in a table. */
 .nrte__tablebar {
   position: absolute;
@@ -319,6 +369,14 @@
   border: 1px solid var(--nrte-border);
   padding: 4px 8px;
   vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+/* borderless table: keep a faint guide while editing */
+.nrte__content td[style*='border-style: none'],
+.nrte__content th[style*='border-style: none'] {
+  outline: 1px dashed var(--nrte-border);
+  outline-offset: -1px;
 }
 
 /* -------------------------------------------------------------- source view */

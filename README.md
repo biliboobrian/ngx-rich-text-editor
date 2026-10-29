@@ -91,7 +91,7 @@ Just one-way input + output:
 `superscript` `unorderedList` `orderedList` `indent` `outdent` `blockquote` `code` `alignLeft`
 `alignCenter` `alignRight` `alignJustify` `link` `unlink` `image` `table` `horizontalRule` `clear`
 `source`, and the table commands `tableRowAbove` `tableRowBelow` `tableColLeft` `tableColRight`
-`tableRowDelete` `tableColDelete` `tableDelete`.
+`tableRowDelete` `tableColDelete` `tableTextColor` `tableBackground` `tableBorder` `tableDelete`.
 
 ```ts
 toolbar: RteToolbarItem[] = ['bold', 'italic', '|', 'unorderedList', 'orderedList', '|', 'link', 'source'];
@@ -105,12 +105,21 @@ Lists can be nested and mixed: indent an item, then switch the nested level to b
 numbers — only that level changes (e.g. a bulleted sub-list inside a numbered list).
 
 `table` inserts a 3×3 table. While the caret is in a table, a floating bar offers the
-row / column / delete commands (`RTE_TABLE_TOOLBAR`). All list and table edits can be undone.
+row / column / delete commands (`RTE_TABLE_TOOLBAR`), plus table formatting:
+
+- **column widths**: drag a column border; double-click it to go back to automatic widths
+  (stored as `<colgroup>` + `table-layout: fixed`);
+- **text / background color** of the current cell, row or column (`tableTextColor`, `tableBackground`);
+- **border width** of the whole table: none, 1, 2 or 3 px (`tableBorder`, or `setTableBorder(px)`).
+
+Formatting is written as inline styles on the cells, so the HTML renders the same outside the
+editor. All list and table edits can be undone.
 
 `textColor` / `backgroundColor` open a palette (plus "none" and a custom color picker) and
 produce `<span style="color: …">` / `<span style="background-color: …">`. Change the swatches with
 the `textColors` / `backgroundColors` inputs (defaults: `RTE_TEXT_COLORS`, `RTE_BACKGROUND_COLORS`),
-or call `setColor('textColor', '#c92a2a')` (`null` removes the color).
+or call `setColor('textColor', '#c92a2a')` (`null` removes the color;
+`setColor('tableBackground', '#fff3bf', 'row')` colors table cells).
 
 ## Public methods
 
