@@ -17,7 +17,7 @@ import { RichTextEditorComponent, VERSION_CHECK } from './imports';
 })
 class AppComponent {
   readonly version = VERSION_CHECK;
-  readonly html = signal('<p>Hello <img src="x" onerror="window.__xss = true"></p><script>window.__xss = true</script>');
+  readonly html = signal('<p>Hello <img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" onerror="window.__xss = true"></p><script>window.__xss = true</script>');
   readonly control = new FormControl('<p>form</p>', { nonNullable: true });
 }
 

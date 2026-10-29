@@ -6,7 +6,8 @@ const browser = await chromium.launch();
 const page = await browser.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+page.on('console', (m) => m.type() === 'error' && !m.text().startsWith('Failed to load resource') && errors.push(m.text()));
+page.on('response', (r) => r.status() >= 400 && errors.push(`HTTP ${r.status()} ${r.url()}`));
 
 const annotate = (level, msg) => console.log(`::${level}::${String(msg).replace(/\r?\n/g, ' | ')}`);
 process.on('unhandledRejection', (e) => { annotate('error', `smoke crashed: ${e?.stack ?? e}`); process.exit(1); });
