@@ -53,7 +53,17 @@ export type RteLabelKey =
   | 'scopeSelection'
   | 'scopeCell'
   | 'scopeRow'
-  | 'scopeColumn';
+  | 'scopeColumn'
+  | 'borderSides'
+  | 'borderWidth'
+  | 'borderColor'
+  | 'borderAll'
+  | 'borderTop'
+  | 'borderBottom'
+  | 'borderLeft'
+  | 'borderRight'
+  | 'borderInner'
+  | 'colorAuto';
 
 /** Swatches of the text color palette. Override with the `textColors` input. */
 export const RTE_TEXT_COLORS: readonly string[] = [
@@ -117,6 +127,16 @@ export const RTE_DEFAULT_LABELS: Readonly<Record<RteLabelKey, string>> = {
   scopeCell: 'Cell',
   scopeRow: 'Row',
   scopeColumn: 'Column',
+  borderSides: 'Sides',
+  borderWidth: 'Width',
+  borderColor: 'Color',
+  borderAll: 'All borders',
+  borderTop: 'Top',
+  borderBottom: 'Bottom',
+  borderLeft: 'Left',
+  borderRight: 'Right',
+  borderInner: 'Inside',
+  colorAuto: 'Auto',
   subscript: 'Subscript',
   superscript: 'Superscript',
   unorderedList: 'Bulleted list',
@@ -168,6 +188,16 @@ export const RTE_LABELS_FR: Readonly<Record<RteLabelKey, string>> = {
   scopeCell: 'Cellule',
   scopeRow: 'Ligne',
   scopeColumn: 'Colonne',
+  borderSides: 'Côtés',
+  borderWidth: 'Épaisseur',
+  borderColor: 'Couleur',
+  borderAll: 'Toutes les bordures',
+  borderTop: 'Haut',
+  borderBottom: 'Bas',
+  borderLeft: 'Gauche',
+  borderRight: 'Droite',
+  borderInner: 'Intérieures',
+  colorAuto: 'Auto',
   subscript: 'Indice',
   superscript: 'Exposant',
   unorderedList: 'Liste à puces',

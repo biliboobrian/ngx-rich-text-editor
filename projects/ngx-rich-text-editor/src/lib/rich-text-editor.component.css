@@ -216,26 +216,45 @@
   font-size: 12px;
 }
 
-.nrte__borders {
+.nrte__palette-label {
+  margin: 8px 0 4px;
+  color: var(--nrte-muted);
+  font-size: 11px;
+}
+
+.nrte__palette-label:first-child {
+  margin-top: 0;
+}
+
+.nrte__sides,
+.nrte__widths {
   display: flex;
-  flex-direction: column;
   gap: 2px;
 }
 
-.nrte__border-option {
-  justify-content: flex-start;
-  gap: 12px;
-  font-size: 12px;
+.nrte__widths .nrte__btn {
+  flex: 1;
+  font-size: 11px;
+}
+
+.nrte__side-guide {
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.5;
+}
+
+.nrte__sides path {
+  stroke-width: 3;
 }
 
 .nrte__border-line {
-  width: 48px;
+  width: 24px;
   border-top: 0 solid currentColor;
 }
 
-.nrte__border-line--none {
-  border-top: 1px dashed currentColor;
-  opacity: 0.5;
+.nrte__swatch--active {
+  outline: 2px solid var(--nrte-accent);
+  outline-offset: 1px;
 }
 
 /* Column resizing */
@@ -393,9 +412,11 @@
   overflow-wrap: anywhere;
 }
 
-/* borderless table: keep a faint guide while editing */
-.nrte__content td[style*='border-style: none'],
-.nrte__content th[style*='border-style: none'] {
+/* hidden borders: keep a faint guide while editing */
+.nrte__content td[style*='none'],
+.nrte__content th[style*='none'],
+.nrte__content td[style*='hidden'],
+.nrte__content th[style*='hidden'] {
   outline: 1px dashed var(--nrte-border);
   outline-offset: -1px;
 }

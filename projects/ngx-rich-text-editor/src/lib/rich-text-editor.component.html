@@ -27,18 +27,93 @@
       (keydown.escape)="closePalette()"
     >
       @if (pal.kind === 'tableBorder') {
-        <div class="nrte__borders">
+        <div class="nrte__palette-label">{{ titles().borderSides }}</div>
+        <div class="nrte__sides" role="group" [attr.aria-label]="titles().borderSides">
+          <button
+            type="button"
+            class="nrte__btn"
+            [title]="titles().borderAll"
+            [attr.aria-label]="titles().borderAll"
+            (mousedown)="$event.preventDefault()"
+            (click)="toggleBorderSide('all')"
+          >
+            <svg class="nrte__icon" viewBox="0 0 24 24" aria-hidden="true">
+              <svg:rect x="3" y="3" width="18" height="18" /><svg:path d="M3 12h18M12 3v18" />
+            </svg>
+          </button>
+          @for (side of borderSideKeys; track side) {
+            <button
+              type="button"
+              class="nrte__btn"
+              [class.nrte__btn--active]="borderSides()[side]"
+              [attr.aria-pressed]="borderSides()[side]"
+              [title]="sideLabel(side)"
+              [attr.aria-label]="sideLabel(side)"
+              (mousedown)="$event.preventDefault()"
+              (click)="toggleBorderSide(side)"
+            >
+              <svg class="nrte__icon" viewBox="0 0 24 24" aria-hidden="true">
+                <svg:rect x="3" y="3" width="18" height="18" class="nrte__side-guide" />
+                @switch (side) {
+                  @case ('top') { <svg:path d="M3 3h18" /> }
+                  @case ('bottom') { <svg:path d="M3 21h18" /> }
+                  @case ('left') { <svg:path d="M3 3v18" /> }
+                  @case ('right') { <svg:path d="M21 3v18" /> }
+                  @case ('inner') { <svg:path d="M3 12h18M12 3v18" /> }
+                }
+              </svg>
+            </button>
+          }
+        </div>
+        <div class="nrte__palette-label">{{ titles().borderWidth }}</div>
+        <div class="nrte__widths">
           @for (width of borderWidths; track width) {
             <button
               type="button"
-              class="nrte__btn nrte__border-option"
+              class="nrte__btn"
+              [class.nrte__btn--active]="borderWidth() === width"
+              [title]="width ? width + ' px' : titles().colorNone"
+              [attr.aria-label]="width ? width + ' px' : titles().colorNone"
               (mousedown)="$event.preventDefault()"
-              (click)="setTableBorder(width)"
+              (click)="applyBorder({ width })"
             >
-              <span class="nrte__border-line" [class.nrte__border-line--none]="!width" [style.border-top-width.px]="width || null"></span>
-              {{ width ? width + ' px' : titles().colorNone }}
+              @if (width) {
+                <span class="nrte__border-line" [style.border-top-width.px]="width"></span>
+              } @else {
+                {{ titles().colorNone }}
+              }
             </button>
           }
+        </div>
+        <div class="nrte__palette-label">{{ titles().borderColor }}</div>
+        <div class="nrte__swatches">
+          @for (color of textColors(); track color) {
+            <button
+              type="button"
+              class="nrte__swatch"
+              [class.nrte__swatch--active]="borderColor() === color"
+              [style.background]="color"
+              [title]="color"
+              [attr.aria-label]="color"
+              (mousedown)="$event.preventDefault()"
+              (click)="applyBorder({ color })"
+            ></button>
+          }
+        </div>
+        <div class="nrte__palette-actions">
+          <button
+            type="button"
+            class="nrte__btn"
+            [class.nrte__btn--active]="borderColor() === null"
+            (mousedown)="$event.preventDefault()"
+            (click)="applyBorder({ color: null })"
+          >
+            {{ titles().colorAuto }}
+          </button>
+          <label class="nrte__btn nrte__palette-custom">
+            {{ titles().colorCustom }}
+            <input type="color" [value]="borderColor() ?? '#d0d7de'" (change)="applyBorder({ color: $any($event.target).value })" />
+          </label>
         </div>
       } @else {
         @let kind = pal.kind;

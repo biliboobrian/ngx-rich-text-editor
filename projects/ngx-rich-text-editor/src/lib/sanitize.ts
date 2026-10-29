@@ -53,6 +53,9 @@ const ALLOWED_STYLES = new Set([
   'color', 'background-color', 'margin-left', 'padding-left',
   // table layout and borders
   'width', 'table-layout', 'border', 'border-width', 'border-style', 'border-color',
+  ...['top', 'right', 'bottom', 'left'].flatMap((side) =>
+    ['', '-width', '-style', '-color'].map((part) => `border-${side}${part}`),
+  ),
 ]);
 
 const SAFE_URL = /^(?:https?:|mailto:|tel:|#|\/|\.{1,2}\/|[^:/?#]*(?:[/?#]|$))/i;

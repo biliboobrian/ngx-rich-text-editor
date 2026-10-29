@@ -111,7 +111,10 @@ row / column / delete commands (`RTE_TABLE_TOOLBAR`), plus table formatting:
 - **column widths**: drag a column border; double-click it to go back to automatic widths
   (stored as `<colgroup>` + `table-layout: fixed`);
 - **text / background color** of the current cell, row or column (`tableTextColor`, `tableBackground`);
-- **border width** of the whole table: none, 1, 2 or 3 px (`tableBorder`, or `setTableBorder(px)`);
+- **borders** (`tableBorder`) of the selected cells, or of the whole table: pick the sides — top,
+  bottom, left, right edges and/or the inside lines, independently — then a width (none, 1, 2,
+  3 px) and a color (`auto` = theme color). By code:
+  `setTableBorder(2, { color: '#c92a2a', sides: { top: false, left: false, right: false, inner: false } })`;
 - **cell selection**: drag across cells or Shift+click to select a rectangle of cells. Bold, italic,
   underline, strikethrough, alignment, text / background colors and borders then apply to the
   selected cells (as cell styles), <kbd>Delete</kbd> empties them, <kbd>Esc</kbd> cancels.

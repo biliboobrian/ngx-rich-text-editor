@@ -87,6 +87,28 @@ const COLOR_KINDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
   'textColor', 'backgroundColor', 'tableTextColor', 'tableBackground',
 ]);
 
+/**
+ * Table borders to change: the outer edges of the selected cells (or of the table) and the lines
+ * between the selected cells.
+ */
+export interface RteBorderSides {
+  top: boolean;
+  bottom: boolean;
+  left: boolean;
+  right: boolean;
+  inner: boolean;
+}
+
+const SIDE_LABELS: Record<keyof RteBorderSides, RteLabelKey> = {
+  top: 'borderTop',
+  bottom: 'borderBottom',
+  left: 'borderLeft',
+  right: 'borderRight',
+  inner: 'borderInner',
+};
+
+const ALL_SIDES: RteBorderSides = { top: true, bottom: true, left: true, right: true, inner: true };
+
 const SCOPE_LABELS: Record<RteTableScope, RteLabelKey> = {
   selection: 'scopeSelection',
   cell: 'scopeCell',
@@ -332,6 +354,12 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     this.cellSelection() ? ['selection', 'cell', 'row', 'column'] : ['cell', 'row', 'column'],
   );
   protected readonly borderWidths = BORDER_WIDTHS;
+  protected readonly borderSideKeys = Object.keys(SIDE_LABELS) as (keyof RteBorderSides)[];
+  /** Border settings of the borders popup, applied on each change of width or color. */
+  protected readonly borderSides = signal<RteBorderSides>({ ...ALL_SIDES });
+  protected readonly borderWidth = signal(1);
+  /** `null`: the theme border color (`--nrte-border`). */
+  protected readonly borderColor = signal<string | null>(null);
   /** Pointer over a column border: shows the resize cursor. */
   protected readonly colResizeHover = signal(false);
   /** Vertical guide shown while a column border is dragged. */
@@ -435,19 +463,39 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   /**
-   * Sets the border width (px) of the selected cells, or of every cell of the table holding the
-   * caret; 0 hides the borders.
+   * Sets table borders: `width` in px (0 removes the lines) on the chosen `sides` of the selected
+   * cells, or of the whole table holding the caret. `color` defaults to the theme border color.
    */
-  setTableBorder(width: number): void {
+  setTableBorder(width: number, options: { color?: string | null; sides?: Partial<RteBorderSides> } = {}): void {
     if (this.isDisabled() || this.sourceMode()) return;
-    this.palette.set(null);
-    this.restoreSelection();
-    const color = getComputedStyle(this.root().nativeElement).getPropertyValue('--nrte-border').trim() || '#d0d7de';
-    this.styleCells(this.cellSelection() ? 'selection' : 'table', (cell) => {
-      cell.style.removeProperty('border');
-      if (width) cell.style.border = `${width}px solid ${color}`;
-      else cell.style.borderStyle = 'none';
-    });
+    const sides = { ...ALL_SIDES, ...options.sides };
+    const color =
+      options.color ?? (getComputedStyle(this.root().nativeElement).getPropertyValue('--nrte-border').trim() || '#d0d7de');
+    // `hidden` beats the neighbour's border in the collapsed border model, `none` would not
+    const value = width ? `${width}px solid ${color}` : 'hidden';
+    const selected = this.selectionRect();
+    this.rewriteTable((copy) => {
+      const rows = Array.from(copy.rows);
+      const [r1, r2, c1, c2] = selected ?? [0, rows.length - 1, 0, Math.max(...rows.map((tr) => tr.cells.length)) - 1];
+      const set = (r: number, c: number, side: string) => rows[r]?.cells[c]?.style.setProperty(`border-${side}`, value);
+      for (let r = r1; r <= r2; r++) {
+        for (let c = c1; c <= c2; c++) {
+          if (r === r1 ? sides.top : sides.inner) set(r, c, 'top');
+          if (r === r2 ? sides.bottom : sides.inner) set(r, c, 'bottom');
+          if (c === c1 ? sides.left : sides.inner) set(r, c, 'left');
+          if (c === c2 ? sides.right : sides.inner) set(r, c, 'right');
+        }
+      }
+      // the neighbouring cells share the outer lines: give them the same border
+      for (let c = c1; c <= c2; c++) {
+        if (sides.top) set(r1 - 1, c, 'bottom');
+        if (sides.bottom) set(r2 + 1, c, 'top');
+      }
+      for (let r = r1; r <= r2; r++) {
+        if (sides.left) set(r, c1 - 1, 'right');
+        if (sides.right) set(r, c2 + 1, 'left');
+      }
+    }, this.cellSelection()?.table);
     this.syncFromEditor();
     this.updateActiveStates();
   }
@@ -537,6 +585,24 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   protected swatchesOf(kind: RteColorKind | 'tableBorder'): readonly string[] {
     return kind === 'textColor' || kind === 'tableTextColor' ? this.textColors() : this.backgroundColors();
+  }
+
+  protected sideLabel(side: keyof RteBorderSides): string {
+    return this.titles()[SIDE_LABELS[side]];
+  }
+
+  protected toggleBorderSide(side: keyof RteBorderSides | 'all'): void {
+    this.borderSides.update((sides) => (side === 'all' ? { ...ALL_SIDES } : { ...sides, [side]: !sides[side] }));
+  }
+
+  /** Borders popup: a new width or color is applied right away to the chosen sides. */
+  protected applyBorder(change: { width?: number; color?: string | null }): void {
+    if (change.width !== undefined) this.borderWidth.set(change.width);
+    if (change.color !== undefined) {
+      this.borderColor.set(change.color);
+      if (!this.borderWidth()) this.borderWidth.set(1);
+    }
+    this.setTableBorder(this.borderWidth(), { color: this.borderColor(), sides: this.borderSides() });
   }
 
   protected scopeLabel(scope: RteTableScope): string {
@@ -819,12 +885,20 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (this.tableScope() === 'selection') this.tableScope.set('cell');
   }
 
-  /** Cells of the selected rectangle, in `table` (defaults to the selected table). */
-  private selectedCells(table = this.cellSelection()?.table): HTMLTableCellElement[] {
+  /** Selected rectangle as [first row, last row, first column, last column]. */
+  private selectionRect(): [number, number, number, number] | null {
     const sel = this.cellSelection();
-    if (!sel || !table) return [];
+    if (!sel) return null;
     const [r1, r2] = [sel.anchor[0], sel.focus[0]].sort((a, b) => a - b);
     const [c1, c2] = [sel.anchor[1], sel.focus[1]].sort((a, b) => a - b);
+    return [r1, r2, c1, c2];
+  }
+
+  /** Cells of the selected rectangle, in `table` (defaults to the selected table). */
+  private selectedCells(table = this.cellSelection()?.table): HTMLTableCellElement[] {
+    const rect = this.selectionRect();
+    if (!rect || !table) return [];
+    const [r1, r2, c1, c2] = rect;
     const cells: HTMLTableCellElement[] = [];
     for (let r = r1; r <= r2; r++) {
       for (let c = c1; c <= c2; c++) {
