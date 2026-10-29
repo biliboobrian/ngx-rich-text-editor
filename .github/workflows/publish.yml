@@ -1,10 +1,11 @@
 name: Publish to npm
 
-# Create a GitHub release (e.g. tag v0.1.0) to publish.
-# Requires a repository secret NPM_TOKEN (npm "Automation" token).
+# Push a version tag to publish:  git tag v0.1.0 && git push origin v0.1.0
+# The tag must match the version in projects/ngx-rich-text-editor/package.json.
+# Requires a repository secret NPM_TOKEN (npm granular access token).
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -20,6 +21,11 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      - name: Check tag matches package version
+        if: github.ref_type == 'tag'
+        run: |
+          PKG=$(node -p "require('./projects/ngx-rich-text-editor/package.json').version")
+          [ "v$PKG" = "${GITHUB_REF_NAME}" ] || { echo "Tag ${GITHUB_REF_NAME} != package version v$PKG"; exit 1; }
       - run: npm install
       - run: npm run build
       - run: npm publish --access public --provenance

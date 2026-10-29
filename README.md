@@ -140,7 +140,7 @@ npm run build        # builds the library into dist/ngx-rich-text-editor
 npm run publish:lib  # build + npm publish
 ```
 
-Publishing is also automated: add an `NPM_TOKEN` secret to the repository and create a GitHub release.
+Publishing is also automated: add an `NPM_TOKEN` secret to the repository and push a version tag (`git tag v0.1.0 && git push origin v0.1.0`).
 
 ## License
 
