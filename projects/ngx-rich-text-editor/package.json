@@ -1,6 +1,6 @@
 {
   "name": "@biliboobrian/ngx-rich-text-editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lightweight Angular rich text editor (standalone, signals) that takes and emits HTML. Works with ngModel and Reactive Forms.",
   "license": "MIT",
   "author": "Pierre Hanauer",
