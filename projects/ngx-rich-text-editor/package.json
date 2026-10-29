@@ -1,0 +1,24 @@
+{
+  "name": "@biliboobrian/ngx-rich-text-editor",
+  "version": "0.1.0",
+  "description": "Lightweight Angular rich text editor (standalone, signals) that takes and emits HTML. Works with ngModel and Reactive Forms.",
+  "license": "MIT",
+  "author": "Pierre Hanauer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/biliboobrian/ngx-rich-text-editor.git"
+  },
+  "homepage": "https://github.com/biliboobrian/ngx-rich-text-editor#readme",
+  "bugs": "https://github.com/biliboobrian/ngx-rich-text-editor/issues",
+  "keywords": ["angular", "rich-text-editor", "wysiwyg", "html-editor", "contenteditable", "ngx"],
+  "peerDependencies": {
+    "@angular/common": ">=19.0.0",
+    "@angular/core": ">=19.0.0",
+    "@angular/forms": ">=19.0.0"
+  },
+  "dependencies": {
+    "tslib": "^2.6.0"
+  },
+  "sideEffects": false,
+  "publishConfig": { "access": "public" }
+}

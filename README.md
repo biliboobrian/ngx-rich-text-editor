@@ -1,0 +1,147 @@
+# @biliboobrian/ngx-rich-text-editor
+
+Lightweight **rich text editor for Angular** that takes **HTML as input** and emits HTML.
+
+- Standalone component, signals, `OnPush`, zoneless-friendly
+- Two-way binding `[(value)]` **and** `ngModel` / Reactive Forms (`ControlValueAccessor`)
+- Incoming and pasted HTML is **sanitized** (allow-list: no `<script>`, no `on*` handlers, no `javascript:` URLs)
+- Configurable toolbar, i18n labels (English + French included), HTML source view
+- Themeable with CSS variables, no dependencies besides Angular
+
+## Installation
+
+```bash
+npm install @biliboobrian/ngx-rich-text-editor
+```
+
+Requires Angular **19+** (`@angular/core`, `@angular/common`, `@angular/forms`).
+
+## Usage
+
+```ts
+import { Component, signal } from '@angular/core';
+import { RichTextEditorComponent } from '@biliboobrian/ngx-rich-text-editor';
+
+@Component({
+  selector: 'app-root',
+  imports: [RichTextEditorComponent],
+  template: `
+    <ngx-rich-text-editor [(value)]="html" placeholder="Write something…" />
+    <pre>{{ html() }}</pre>
+  `,
+})
+export class AppComponent {
+  html = signal('<h2>Hello</h2><p>This is <strong>rich</strong> text.</p>');
+}
+```
+
+Just one-way input + output:
+
+```html
+<ngx-rich-text-editor [value]="initialHtml" (valueChange)="save($event)" />
+```
+
+### Forms
+
+```html
+<!-- Reactive forms -->
+<ngx-rich-text-editor [formControl]="body" />
+<ngx-rich-text-editor formControlName="body" />
+
+<!-- Template-driven -->
+<ngx-rich-text-editor [(ngModel)]="article.body" name="body" />
+```
+
+`disable()` on the control puts the editor in read-only mode; `touched` is set on blur.
+
+## Inputs
+
+| Input             | Type                                  | Default               | Description |
+| ----------------- | ------------------------------------- | --------------------- | ----------- |
+| `value`           | `string` (model)                      | `''`                  | HTML content. Supports `[(value)]`. |
+| `placeholder`     | `string`                              | `''`                  | Shown when empty. |
+| `toolbar`         | `RteToolbarItem[]`                    | `RTE_DEFAULT_TOOLBAR` | Buttons to show, `'|'` = separator. |
+| `hideToolbar`     | `boolean`                             | `false`               | Hide the toolbar. |
+| `readonly`        | `boolean`                             | `false`               | Read-only mode. |
+| `labels`          | `Partial<Record<RteCommand, string>>` | English               | Tooltips. `RTE_LABELS_FR` is provided. |
+| `sanitize`        | `boolean`                             | `true`                | Sanitize incoming & pasted HTML. |
+| `sanitizeOptions` | `RteSanitizeOptions`                  | `{}`                  | Allow extra tags / attributes / styles / classes. |
+| `pastePlainText`  | `boolean`                             | `false`               | Always paste as plain text. |
+| `linkTargetBlank` | `boolean`                             | `false`               | Inserted links open in a new tab. |
+| `promptFn`        | `RtePromptFn`                         | `window.prompt`       | Ask for link / image URLs (plug your own dialog, may return a Promise). |
+| `minHeight`       | `string`                              | `'160px'`             | Min height of the editable area. |
+| `maxHeight`       | `string \| null`                      | `null`                | Max height before scrolling. |
+| `ariaLabel`       | `string`                              | `'Rich text editor'`  | Accessible label. |
+
+## Outputs
+
+| Output        | Payload  | Description |
+| ------------- | -------- | ----------- |
+| `valueChange` | `string` | New HTML on every change. |
+| `editorFocus` | `void`   | Editable area focused. |
+| `editorBlur`  | `void`   | Editable area blurred. |
+
+## Toolbar commands
+
+`undo` `redo` `paragraph` `h1` `h2` `h3` `bold` `italic` `underline` `strikeThrough` `subscript`
+`superscript` `unorderedList` `orderedList` `indent` `outdent` `blockquote` `code` `alignLeft`
+`alignCenter` `alignRight` `alignJustify` `link` `unlink` `image` `horizontalRule` `clear` `source`
+
+```ts
+toolbar: RteToolbarItem[] = ['bold', 'italic', '|', 'unorderedList', 'orderedList', '|', 'link', 'source'];
+```
+
+Keyboard: <kbd>Ctrl/⌘ + B / I / U</kbd> (native), <kbd>Ctrl/⌘ + K</kbd> insert link.
+
+## Public methods
+
+```ts
+editor = viewChild.required(RichTextEditorComponent);
+
+this.editor().focus();
+this.editor().insertHtml('<p>Inserted at caret</p>');
+this.editor().execute('bold');
+this.editor().getHtml();
+```
+
+The sanitizer is also exported: `sanitizeHtml(html, document, options?)`.
+
+## Theming
+
+```css
+ngx-rich-text-editor {
+  --nrte-accent: #e91e63;
+  --nrte-accent-bg: rgba(233, 30, 99, 0.12);
+  --nrte-border: #ccc;
+  --nrte-radius: 4px;
+  --nrte-bg: #fff;
+  --nrte-toolbar-bg: #fafafa;
+  --nrte-text: #222;
+  --nrte-muted: #999;
+  --nrte-code-bg: #f3f4f6;
+  --nrte-font: inherit;
+}
+```
+
+All internal classes are prefixed with `.nrte` if you need deeper customisation.
+
+## Notes
+
+- Formatting relies on the browser's `contenteditable` / `document.execCommand`, which is deprecated
+  on paper but still supported by every major browser and the most robust option without a heavy dependency.
+- With SSR the editable area is rendered empty on the server and filled in the browser.
+
+## Development
+
+```bash
+npm install
+npm start            # demo app on http://localhost:4200
+npm run build        # builds the library into dist/ngx-rich-text-editor
+npm run publish:lib  # build + npm publish
+```
+
+Publishing is also automated: add an `NPM_TOKEN` secret to the repository and create a GitHub release.
+
+## License
+
+MIT © Pierre Hanauer

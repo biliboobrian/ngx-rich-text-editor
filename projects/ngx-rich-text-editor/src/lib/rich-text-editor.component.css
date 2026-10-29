@@ -1,0 +1,233 @@
+/*
+ * Theme with CSS custom properties on the host or any ancestor:
+ *   ngx-rich-text-editor { --nrte-accent: #e91e63; --nrte-radius: 0; }
+ */
+.nrte-host {
+  --nrte-font: inherit;
+  --nrte-text: #1f2328;
+  --nrte-muted: #8b949e;
+  --nrte-bg: #ffffff;
+  --nrte-toolbar-bg: #f6f8fa;
+  --nrte-border: #d0d7de;
+  --nrte-accent: #3b6cf6;
+  --nrte-accent-bg: rgba(59, 108, 246, 0.12);
+  --nrte-radius: 8px;
+  --nrte-code-bg: #f3f4f6;
+  display: block;
+}
+
+.nrte {
+  font-family: var(--nrte-font);
+  color: var(--nrte-text);
+  background: var(--nrte-bg);
+  border: 1px solid var(--nrte-border);
+  border-radius: var(--nrte-radius);
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.nrte--focused {
+  border-color: var(--nrte-accent);
+  box-shadow: 0 0 0 3px var(--nrte-accent-bg);
+}
+
+.nrte--disabled {
+  opacity: 0.7;
+}
+
+/* ---------------------------------------------------------------- toolbar */
+
+.nrte__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  background: var(--nrte-toolbar-bg);
+  border-bottom: 1px solid var(--nrte-border);
+}
+
+.nrte__sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--nrte-border);
+}
+
+.nrte__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.nrte__btn:hover:not(:disabled) {
+  background: var(--nrte-accent-bg);
+}
+
+.nrte__btn:focus-visible {
+  outline: 2px solid var(--nrte-accent);
+  outline-offset: 1px;
+}
+
+.nrte__btn--active {
+  background: var(--nrte-accent-bg);
+  color: var(--nrte-accent);
+}
+
+.nrte__btn:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.nrte__txt {
+  font-size: 15px;
+  font-family: system-ui, sans-serif;
+}
+
+.nrte__txt--sm {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.nrte__txt--serif {
+  font-family: Georgia, serif;
+}
+
+.nrte__icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nrte__icon .nrte__fill {
+  fill: currentColor;
+}
+
+/* ---------------------------------------------------------- editable area */
+
+.nrte__content {
+  position: relative;
+  padding: 12px 16px;
+  overflow-y: auto;
+  outline: none;
+  line-height: 1.6;
+  word-wrap: break-word;
+  cursor: text;
+}
+
+.nrte__content[contenteditable='false'] {
+  cursor: default;
+}
+
+.nrte__content--empty::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  color: var(--nrte-muted);
+  pointer-events: none;
+}
+
+.nrte__hidden {
+  display: none;
+}
+
+.nrte__content > :first-child {
+  margin-top: 0;
+}
+
+.nrte__content > :last-child {
+  margin-bottom: 0;
+}
+
+.nrte__content p {
+  margin: 0 0 0.75em;
+}
+
+.nrte__content h1,
+.nrte__content h2,
+.nrte__content h3 {
+  margin: 0.8em 0 0.4em;
+  line-height: 1.25;
+}
+
+.nrte__content h1 { font-size: 1.75em; }
+.nrte__content h2 { font-size: 1.4em; }
+.nrte__content h3 { font-size: 1.15em; }
+
+.nrte__content ul,
+.nrte__content ol {
+  margin: 0 0 0.75em;
+  padding-left: 1.5em;
+}
+
+.nrte__content blockquote {
+  margin: 0 0 0.75em;
+  padding: 0.25em 1em;
+  border-left: 3px solid var(--nrte-accent);
+  color: var(--nrte-muted);
+}
+
+.nrte__content pre {
+  margin: 0 0 0.75em;
+  padding: 0.75em 1em;
+  background: var(--nrte-code-bg);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  white-space: pre-wrap;
+}
+
+.nrte__content a {
+  color: var(--nrte-accent);
+}
+
+.nrte__content img {
+  max-width: 100%;
+  height: auto;
+}
+
+.nrte__content hr {
+  border: 0;
+  border-top: 1px solid var(--nrte-border);
+  margin: 1em 0;
+}
+
+.nrte__content table {
+  border-collapse: collapse;
+}
+
+.nrte__content td,
+.nrte__content th {
+  border: 1px solid var(--nrte-border);
+  padding: 4px 8px;
+}
+
+/* -------------------------------------------------------------- source view */
+
+.nrte__source {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  background: var(--nrte-code-bg);
+  color: var(--nrte-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
