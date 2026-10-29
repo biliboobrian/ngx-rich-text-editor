@@ -10,6 +10,8 @@ export type RteCommand =
   | 'italic'
   | 'underline'
   | 'strikeThrough'
+  | 'textColor'
+  | 'backgroundColor'
   | 'subscript'
   | 'superscript'
   | 'unorderedList'
@@ -40,6 +42,21 @@ export type RteCommand =
 /** A toolbar entry: a command, or `'|'` for a visual separator. */
 export type RteToolbarItem = RteCommand | '|';
 
+/** Texts of the editor: command tooltips plus the color palette buttons. */
+export type RteLabelKey = RteCommand | 'colorNone' | 'colorCustom';
+
+/** Swatches of the text color palette. Override with the `textColors` input. */
+export const RTE_TEXT_COLORS: readonly string[] = [
+  '#000000', '#495057', '#868e96', '#c92a2a', '#e8590c', '#e67700',
+  '#2b8a3e', '#0b7285', '#1864ab', '#3b5bdb', '#6741d9', '#a61e4d',
+];
+
+/** Swatches of the background color palette. Override with the `backgroundColors` input. */
+export const RTE_BACKGROUND_COLORS: readonly string[] = [
+  '#fff3bf', '#ffe8cc', '#ffe3e3', '#ffdeeb', '#e5dbff', '#dbe4ff',
+  '#d0ebff', '#c5f6fa', '#d3f9d8', '#e9ecef', '#ffd43b', '#8ce99a',
+];
+
 /** Function used to ask the user for a URL (link or image). Return `null` to cancel. */
 export type RtePromptFn = (
   kind: 'link' | 'image',
@@ -49,7 +66,7 @@ export type RtePromptFn = (
 export const RTE_DEFAULT_TOOLBAR: readonly RteToolbarItem[] = [
   'undo', 'redo', '|',
   'paragraph', 'h1', 'h2', 'h3', '|',
-  'bold', 'italic', 'underline', 'strikeThrough', '|',
+  'bold', 'italic', 'underline', 'strikeThrough', 'textColor', 'backgroundColor', '|',
   'unorderedList', 'orderedList', 'blockquote', 'code', '|',
   'alignLeft', 'alignCenter', 'alignRight', 'alignJustify', '|',
   'link', 'unlink', 'image', 'table', 'horizontalRule', '|',
@@ -64,7 +81,7 @@ export const RTE_TABLE_TOOLBAR: readonly RteToolbarItem[] = [
 ];
 
 /** Default (English) tooltips. Override any of them with the `labels` input. */
-export const RTE_DEFAULT_LABELS: Readonly<Record<RteCommand, string>> = {
+export const RTE_DEFAULT_LABELS: Readonly<Record<RteLabelKey, string>> = {
   undo: 'Undo',
   redo: 'Redo',
   paragraph: 'Paragraph',
@@ -75,6 +92,10 @@ export const RTE_DEFAULT_LABELS: Readonly<Record<RteCommand, string>> = {
   italic: 'Italic',
   underline: 'Underline',
   strikeThrough: 'Strikethrough',
+  textColor: 'Text color',
+  backgroundColor: 'Background color',
+  colorNone: 'None',
+  colorCustom: 'Custom…',
   subscript: 'Subscript',
   superscript: 'Superscript',
   unorderedList: 'Bulleted list',
@@ -104,7 +125,7 @@ export const RTE_DEFAULT_LABELS: Readonly<Record<RteCommand, string>> = {
 };
 
 /** French labels, ready to pass to `[labels]`. */
-export const RTE_LABELS_FR: Readonly<Record<RteCommand, string>> = {
+export const RTE_LABELS_FR: Readonly<Record<RteLabelKey, string>> = {
   undo: 'Annuler',
   redo: 'Rétablir',
   paragraph: 'Paragraphe',
@@ -115,6 +136,10 @@ export const RTE_LABELS_FR: Readonly<Record<RteCommand, string>> = {
   italic: 'Italique',
   underline: 'Souligné',
   strikeThrough: 'Barré',
+  textColor: 'Couleur du texte',
+  backgroundColor: 'Couleur de fond',
+  colorNone: 'Aucune',
+  colorCustom: 'Personnalisée…',
   subscript: 'Indice',
   superscript: 'Exposant',
   unorderedList: 'Liste à puces',

@@ -64,7 +64,9 @@ Just one-way input + output:
 | `toolbar`         | `RteToolbarItem[]`                    | `RTE_DEFAULT_TOOLBAR` | Buttons to show, `'|'` = separator. |
 | `hideToolbar`     | `boolean`                             | `false`               | Hide the toolbar. |
 | `readonly`        | `boolean`                             | `false`               | Read-only mode. |
-| `labels`          | `Partial<Record<RteCommand, string>>` | English               | Tooltips. `RTE_LABELS_FR` is provided. |
+| `labels`          | `Partial<Record<RteLabelKey, string>>` | English              | Tooltips. `RTE_LABELS_FR` is provided. |
+| `textColors`      | `string[]`                            | `RTE_TEXT_COLORS`     | Swatches of the text color palette. |
+| `backgroundColors`| `string[]`                            | `RTE_BACKGROUND_COLORS` | Swatches of the background color palette. |
 | `sanitize`        | `boolean`                             | `true`                | Sanitize incoming & pasted HTML. |
 | `sanitizeOptions` | `RteSanitizeOptions`                  | `{}`                  | Allow extra tags / attributes / styles / classes. |
 | `pastePlainText`  | `boolean`                             | `false`               | Always paste as plain text. |
@@ -84,7 +86,8 @@ Just one-way input + output:
 
 ## Toolbar commands
 
-`undo` `redo` `paragraph` `h1` `h2` `h3` `bold` `italic` `underline` `strikeThrough` `subscript`
+`undo` `redo` `paragraph` `h1` `h2` `h3` `bold` `italic` `underline` `strikeThrough` `textColor`
+`backgroundColor` `subscript`
 `superscript` `unorderedList` `orderedList` `indent` `outdent` `blockquote` `code` `alignLeft`
 `alignCenter` `alignRight` `alignJustify` `link` `unlink` `image` `table` `horizontalRule` `clear`
 `source`, and the table commands `tableRowAbove` `tableRowBelow` `tableColLeft` `tableColRight`
@@ -103,6 +106,11 @@ numbers — only that level changes (e.g. a bulleted sub-list inside a numbered 
 
 `table` inserts a 3×3 table. While the caret is in a table, a floating bar offers the
 row / column / delete commands (`RTE_TABLE_TOOLBAR`). All list and table edits can be undone.
+
+`textColor` / `backgroundColor` open a palette (plus "none" and a custom color picker) and
+produce `<span style="color: …">` / `<span style="background-color: …">`. Change the swatches with
+the `textColors` / `backgroundColors` inputs (defaults: `RTE_TEXT_COLORS`, `RTE_BACKGROUND_COLORS`),
+or call `setColor('textColor', '#c92a2a')` (`null` removes the color).
 
 ## Public methods
 

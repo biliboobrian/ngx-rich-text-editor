@@ -6,7 +6,7 @@
   [class.nrte--source]="sourceMode()"
 >
   @if (!hideToolbar()) {
-    <div class="nrte__toolbar" role="toolbar" aria-label="Formatting">
+    <div class="nrte__toolbar nrte__toolbar--main" role="toolbar" aria-label="Formatting">
       @for (item of toolbar(); track $index) {
         @if (item === '|') {
           <span class="nrte__sep" aria-hidden="true"></span>
@@ -14,6 +14,40 @@
           <ng-container *ngTemplateOutlet="buttonTpl; context: { $implicit: item }" />
         }
       }
+    </div>
+  }
+
+  @if (palette(); as pal) {
+    <div
+      class="nrte__palette"
+      role="dialog"
+      [attr.aria-label]="titleOf(pal.kind)"
+      [style.top.px]="pal.top"
+      [style.left.px]="pal.left"
+      (keydown.escape)="closePalette()"
+    >
+      <div class="nrte__swatches">
+        @for (color of pal.kind === 'textColor' ? textColors() : backgroundColors(); track color) {
+          <button
+            type="button"
+            class="nrte__swatch"
+            [style.background]="color"
+            [title]="color"
+            [attr.aria-label]="color"
+            (mousedown)="$event.preventDefault()"
+            (click)="setColor(pal.kind, color)"
+          ></button>
+        }
+      </div>
+      <div class="nrte__palette-actions">
+        <button type="button" class="nrte__btn" (mousedown)="$event.preventDefault()" (click)="setColor(pal.kind, null)">
+          {{ titles().colorNone }}
+        </button>
+        <label class="nrte__btn nrte__palette-custom">
+          {{ titles().colorCustom }}
+          <input type="color" [value]="lastColors()[pal.kind]" (change)="setColor(pal.kind, $any($event.target).value)" />
+        </label>
+      </div>
     </div>
   }
 
@@ -75,7 +109,11 @@
   <button
     type="button"
     class="nrte__btn"
-    [class.nrte__btn--active]="isActive(item)"
+    [class.nrte__btn--active]="isActive(item) || palette()?.kind === item"
+    [class.nrte__btn--color]="isColor(item)"
+    [attr.data-command]="item"
+    [attr.aria-haspopup]="isColor(item) ? 'dialog' : null"
+    [attr.aria-expanded]="isColor(item) ? palette()?.kind === item : null"
     [attr.aria-pressed]="isToggle(item) ? isActive(item) : null"
     [attr.aria-label]="titleOf(item)"
     [title]="titleOf(item)"
@@ -95,6 +133,20 @@
       @case ('h2') { <span class="nrte__txt nrte__txt--sm">H2</span> }
       @case ('h3') { <span class="nrte__txt nrte__txt--sm">H3</span> }
       @case ('clear') { <span class="nrte__txt nrte__txt--sm">T<sub>x</sub></span> }
+      @case ('textColor') {
+        <span class="nrte__color">
+          <span class="nrte__txt">A</span>
+          <span class="nrte__color-bar" [style.background]="lastColors().textColor"></span>
+        </span>
+      }
+      @case ('backgroundColor') {
+        <span class="nrte__color">
+          <svg class="nrte__icon nrte__icon--sm" viewBox="0 0 24 24" aria-hidden="true">
+            <svg:path d="M9 14l-4 4v2h4l4-4M9 14l8-8 3 3-8 8M9 14l3 3" />
+          </svg>
+          <span class="nrte__color-bar" [style.background]="lastColors().backgroundColor"></span>
+        </span>
+      }
       @default {
         <svg class="nrte__icon" viewBox="0 0 24 24" aria-hidden="true">
           @switch (item) {

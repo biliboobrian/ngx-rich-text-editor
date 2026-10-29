@@ -21,11 +21,14 @@ import { DOCUMENT, NgTemplateOutlet, isPlatformBrowser } from '@angular/common';
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 import { RteSanitizeOptions, isSafeUrl, sanitizeHtml } from './sanitize';
 import {
+  RTE_BACKGROUND_COLORS,
   RTE_DEFAULT_LABELS,
   RTE_DEFAULT_TOOLBAR,
   RTE_TABLE_TOOLBAR,
+  RTE_TEXT_COLORS,
   RTE_TOGGLE_COMMANDS,
   RteCommand,
+  RteLabelKey,
   RtePromptFn,
   RteToolbarItem,
 } from './toolbar';
@@ -72,6 +75,8 @@ const TABLE_COMMANDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
 
 /** Height of the floating table bar, used to place it above the table. */
 const TABLE_BAR_HEIGHT = 38;
+
+type RteColorKind = 'textColor' | 'backgroundColor';
 
 const STATE_COMMANDS: RteCommand[] = [
   'bold', 'italic', 'underline', 'strikeThrough', 'subscript', 'superscript',
@@ -176,7 +181,11 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   /** Read-only mode (also set automatically by a disabled form control). */
   readonly readonly = input(false, { transform: booleanAttribute });
   /** Tooltip overrides, e.g. `RTE_LABELS_FR`. */
-  readonly labels = input<Partial<Record<RteCommand, string>>>({});
+  readonly labels = input<Partial<Record<RteLabelKey, string>>>({});
+  /** Swatches of the text color palette. */
+  readonly textColors = input<readonly string[]>(RTE_TEXT_COLORS);
+  /** Swatches of the background color palette. */
+  readonly backgroundColors = input<readonly string[]>(RTE_BACKGROUND_COLORS);
   /** Sanitize incoming / pasted HTML (strongly recommended). */
   readonly sanitize = input(true, { transform: booleanAttribute });
   /** Options passed to the sanitizer (extra tags, attributes, styles…). */
@@ -209,6 +218,13 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   /** Position of the floating table bar, or null when the caret isn't in a table. */
   protected readonly tableBar = signal<{ top: number; left: number } | null>(null);
   protected readonly tableToolbar = RTE_TABLE_TOOLBAR;
+  /** Open color palette and its position, below its toolbar button. */
+  protected readonly palette = signal<{ kind: RteColorKind; top: number; left: number } | null>(null);
+  /** Last color picked for each kind, shown under the toolbar buttons. */
+  protected readonly lastColors = signal<Record<RteColorKind, string>>({
+    textColor: '#c92a2a',
+    backgroundColor: '#fff3bf',
+  });
   private readonly formDisabled = signal(false);
 
   protected readonly isDisabled = computed(() => this.readonly() || this.formDisabled());
@@ -243,7 +259,17 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       }
       const onSelectionChange = () => this.handleSelectionChange();
       this.doc.addEventListener('selectionchange', onSelectionChange);
-      this.destroyRef.onDestroy(() => this.doc.removeEventListener('selectionchange', onSelectionChange));
+      // close the color palette when clicking anywhere else
+      const onMouseDown = (event: MouseEvent) => {
+        const target = event.target as Element;
+        const inside = this.root().nativeElement.contains(target) && target.closest('.nrte__palette, .nrte__btn--color');
+        if (!inside) this.palette.set(null);
+      };
+      this.doc.addEventListener('mousedown', onMouseDown);
+      this.destroyRef.onDestroy(() => {
+        this.doc.removeEventListener('selectionchange', onSelectionChange);
+        this.doc.removeEventListener('mousedown', onMouseDown);
+      });
     });
   }
 
@@ -266,6 +292,21 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     this.syncFromEditor();
   }
 
+  /** Applies a text or background color to the selection; `null` removes it. */
+  setColor(kind: RteColorKind, color: string | null): void {
+    if (this.isDisabled() || this.sourceMode()) return;
+    this.palette.set(null);
+    this.restoreSelection();
+    // CSS mode gives `<span style="color: …">` (kept by the sanitizer) instead of `<font>`
+    this.doc.execCommand('styleWithCSS', false, 'true');
+    if (kind === 'textColor') this.doc.execCommand('foreColor', false, color ?? 'inherit');
+    else this.doc.execCommand('hiliteColor', false, color ?? 'transparent');
+    this.doc.execCommand('styleWithCSS', false, 'false');
+    if (color) this.lastColors.update((colors) => ({ ...colors, [kind]: color }));
+    this.syncFromEditor();
+    this.updateActiveStates();
+  }
+
   /** Runs a toolbar command programmatically. */
   async execute(command: RteCommand): Promise<void> {
     if (this.isDisabled()) return;
@@ -274,6 +315,10 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       return;
     }
     if (this.sourceMode()) return;
+    if (command === 'textColor' || command === 'backgroundColor') {
+      this.togglePalette(command);
+      return;
+    }
 
     const block = BLOCK_COMMANDS[command];
     const native = NATIVE_COMMANDS[command];
@@ -331,6 +376,15 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     return item !== '|' && RTE_TOGGLE_COMMANDS.has(item);
   }
 
+  protected isColor(item: RteToolbarItem): boolean {
+    return item === 'textColor' || item === 'backgroundColor';
+  }
+
+  protected closePalette(): void {
+    this.palette.set(null);
+    this.restoreSelection();
+  }
+
   protected titleOf(item: RteToolbarItem): string {
     return item === '|' ? '' : this.titles()[item];
   }
@@ -370,6 +424,10 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   protected onKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && this.palette()) {
+      this.palette.set(null);
+      return;
+    }
     if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       const cell = this.closestCell();
       const li = this.closestInEditor('li');
@@ -530,6 +588,22 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       node = node.parentNode;
     }
     return null;
+  }
+
+  /** Opens the color palette below its toolbar button (or closes it if already open). */
+  private togglePalette(kind: RteColorKind): void {
+    const button = this.root().nativeElement.querySelector(`.nrte__toolbar--main [data-command="${kind}"]`);
+    if (this.palette()?.kind === kind || !button) {
+      this.palette.set(null);
+      return;
+    }
+    const box = this.root().nativeElement.getBoundingClientRect();
+    const rect = button.getBoundingClientRect();
+    this.palette.set({
+      kind,
+      top: rect.bottom - box.top + 4,
+      left: Math.max(0, Math.min(rect.left - box.left, box.width - 212)),
+    });
   }
 
   private closestCell(from?: Node | null): HTMLTableCellElement | null {
