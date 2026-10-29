@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # to push the version tag after a manual run
   id-token: write # npm provenance
 
 jobs:
@@ -32,3 +32,11 @@ jobs:
         working-directory: dist/ngx-rich-text-editor
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Tag the published version (manual runs)
+        if: github.ref_type != 'tag'
+        run: |
+          TAG="v$(node -p "require('./projects/ngx-rich-text-editor/package.json').version")"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
