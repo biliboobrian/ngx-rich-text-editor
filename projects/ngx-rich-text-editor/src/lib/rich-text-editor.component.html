@@ -350,8 +350,11 @@
             {{ titles().commentSubmit }}
           </button>
         </div>
-      } @else if (commentById(bubble.id); as comment) {
-        <ng-container *ngTemplateOutlet="threadTpl; context: { $implicit: comment }" />
+      } @else {
+        <!-- no `as` on `@else if`: Angular 19 (which compiles this template in apps) rejects it -->
+        @if (commentById(bubble.id); as comment) {
+          <ng-container *ngTemplateOutlet="threadTpl; context: { $implicit: comment }" />
+        }
       }
     </div>
   }
