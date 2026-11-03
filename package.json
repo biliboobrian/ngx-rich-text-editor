@@ -8,6 +8,9 @@
     "build": "ng build ngx-rich-text-editor && node scripts/copy-docs.mjs",
     "build:demo": "ng build demo",
     "watch": "ng build ngx-rich-text-editor --watch --configuration development",
+    "test": "ng test ngx-rich-text-editor --watch=false",
+    "test:watch": "ng test ngx-rich-text-editor",
+    "test:coverage": "ng test ngx-rich-text-editor --watch=false --code-coverage",
     "publish:lib": "npm run build && cd dist/ngx-rich-text-editor && npm publish --access public"
   },
   "devDependencies": {
@@ -19,6 +22,13 @@
     "@angular/core": "^20.0.0",
     "@angular/forms": "^20.0.0",
     "@angular/platform-browser": "^20.0.0",
+    "@types/jasmine": "^5.1.15",
+    "jasmine-core": "^5.13.0",
+    "karma": "~6.4.0",
+    "karma-chrome-launcher": "^3.2.0",
+    "karma-coverage": "^2.2.1",
+    "karma-jasmine": "^5.1.0",
+    "karma-jasmine-html-reporter": "^2.3.0",
     "ng-packagr": "^20.0.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.6.0",

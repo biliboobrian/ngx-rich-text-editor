@@ -21,6 +21,14 @@
             "development": {}
           },
           "defaultConfiguration": "production"
+        },
+        "test": {
+          "builder": "@angular/build:karma",
+          "options": {
+            "tsConfig": "projects/ngx-rich-text-editor/tsconfig.spec.json",
+            "karmaConfig": "projects/ngx-rich-text-editor/karma.conf.cjs",
+            "include": ["**/*.spec.ts"]
+          }
         }
       }
     },

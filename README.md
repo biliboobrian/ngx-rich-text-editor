@@ -48,6 +48,7 @@ Lightweight **rich text editor for Angular** that takes **HTML as input** and em
 - English and French labels, every text overridable
 - Public methods: `focus`, `getHtml`, `insertHtml`, `execute`, `setColor`, `setTableBorder`
 - JSDoc on the whole public API
+- Unit tests run in a real browser (headless Chrome), on every push in CI
 
 ## Installation
 
@@ -235,6 +236,9 @@ All internal classes are prefixed with `.nrte` if you need deeper customisation.
 npm install
 npm start            # demo app on http://localhost:4200
 npm run build        # builds the library into dist/ngx-rich-text-editor
+npm test             # unit tests (Karma + Jasmine, headless Chrome)
+npm run test:watch   # tests in watch mode
+npm run test:coverage  # tests + coverage report in coverage/
 npm run publish:lib  # build + npm publish
 ```
 

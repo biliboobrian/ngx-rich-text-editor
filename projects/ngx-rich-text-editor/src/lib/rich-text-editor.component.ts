@@ -1270,7 +1270,8 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   private toggleSource(): void {
     if (this.sourceMode()) {
       this.sourceMode.set(false);
-      // the editor already holds the sanitized version of the source; emit it
+      // load the source now (the value effect may not have run yet), then emit its sanitized version
+      this.editable().nativeElement.innerHTML = this.clean(this.value() ?? '');
       this.lastHtml = null;
       this.syncFromEditor();
       setTimeout(() => this.focus());
@@ -1643,13 +1644,14 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     const el = this.editable().nativeElement;
     const sel = this.doc.getSelection()!;
     const range = sel.getRangeAt(0);
-    const blockOf = (node: Node) => {
+    const blockOf = (node: Node | undefined) => {
       let n = node;
-      while (n.parentNode && n.parentNode !== el) n = n.parentNode;
-      return n.parentNode === el ? n : null;
+      while (n?.parentNode && n.parentNode !== el) n = n.parentNode;
+      return n?.parentNode === el ? n : null;
     };
-    const first = blockOf(range.startContainer);
-    const last = blockOf(range.endContainer);
+    // a boundary on the editable element itself points between two blocks
+    const first = blockOf(range.startContainer === el ? el.childNodes[range.startOffset] : range.startContainer);
+    const last = blockOf(range.endContainer === el ? el.childNodes[range.endOffset - 1] : range.endContainer);
     if (!first || !last) return false;
     const blocks: Node[] = [];
     for (let n: Node | null = first; n; n = n.nextSibling) {
@@ -1659,10 +1661,10 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (!blocks.every((b) => b.nodeName === 'P' || b.nodeName === 'DIV')) return false;
 
     // caret as a position in the new list: characters before it plus one per list item
-    const index = blocks.findIndex((b) => b.contains(range.startContainer));
+    const index = Math.max(0, blocks.findIndex((b) => b.contains(range.startContainer)));
     const inBlock = this.doc.createRange();
     inBlock.setStart(blocks[index], 0);
-    inBlock.setEnd(range.startContainer, range.startOffset);
+    if (blocks[index].contains(range.startContainer)) inBlock.setEnd(range.startContainer, range.startOffset);
     let position = inBlock.toString().length + index + 1;
     for (const b of blocks.slice(0, index)) position += b.textContent!.length;
 
