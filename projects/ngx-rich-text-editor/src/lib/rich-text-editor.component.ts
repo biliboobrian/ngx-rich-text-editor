@@ -81,20 +81,38 @@ const TABLE_COMMANDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
 const TABLE_BAR_HEIGHT = 38;
 
 /**
- * What a color applies to (see {@link RichTextEditorComponent.setColor}):
- * - `textColor`: color of the selected text (`<span style="color: …">`);
- * - `backgroundColor`: highlight of the selected text (`<span style="background-color: …">`);
- * - `tableTextColor`: text color of table cells (`<td style="color: …">`);
- * - `tableBackground`: background of table cells (`<td style="background-color: …">`).
+ * What a color applies to.
+ *
+ * | Kind              | Colors                        | Produces                                  |
+ * | ----------------- | ----------------------------- | ----------------------------------------- |
+ * | `textColor`       | the selected text             | `<span style="color: …">`                 |
+ * | `backgroundColor` | the selected text (highlight) | `<span style="background-color: …">`      |
+ * | `tableTextColor`  | table cells (text)            | `<td style="color: …">`                   |
+ * | `tableBackground` | table cells (background)      | `<td style="background-color: …">`        |
+ *
+ * While table cells are selected, `textColor` / `backgroundColor` color the selected cells.
+ *
+ * @see {@link RichTextEditorComponent.setColor}
+ * @see {@link RteTableScope} for the cells colored by the table kinds
+ * @since 0.2.0
  */
 export type RteColorKind = 'textColor' | 'backgroundColor' | 'tableTextColor' | 'tableBackground';
 
 /**
- * Cells affected by a table color:
- * - `selection`: the rectangle of selected cells (falls back to `cell` when nothing is selected);
+ * Cells affected by a table color (`tableTextColor` / `tableBackground`).
+ *
+ * - `selection`: the rectangle of selected cells (drag or Shift+click); falls back to `cell` when
+ *   no cells are selected;
  * - `cell`: the cell holding the caret;
  * - `row`: every cell of the caret's row;
  * - `column`: every cell of the caret's column.
+ *
+ * @example
+ * ```ts
+ * editor.setColor('tableBackground', '#fff3bf', 'row');
+ * ```
+ * @see {@link RichTextEditorComponent.setColor}
+ * @since 0.2.0
  */
 export type RteTableScope = 'selection' | 'cell' | 'row' | 'column';
 
@@ -103,19 +121,30 @@ const COLOR_KINDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
 ]);
 
 /**
- * Table borders to change: the outer edges of the selected cells (or of the table) and the lines
- * between the selected cells.
+ * Table borders to change with {@link RichTextEditorComponent.setTableBorder}: the outer edges of
+ * the selected cells (or of the whole table when no cells are selected) and the lines between them.
+ * `true` changes the side, `false` leaves it as it is.
+ *
+ * @example
+ * ```ts
+ * // outer frame only
+ * editor.setTableBorder(2, { sides: { top: true, bottom: true, left: true, right: true, inner: false } });
+ * ```
+ * @since 0.2.0
  */
 export interface RteBorderSides {
-  /** Top edge of the selected cells (or of the table). */
+  /**
+   * Top edge of the selected cells (or of the table). The cells above share this line and get the
+   * same border.
+   */
   top: boolean;
-  /** Bottom edge of the selected cells (or of the table). */
+  /** Bottom edge of the selected cells (or of the table); shared with the cells below. */
   bottom: boolean;
-  /** Left edge of the selected cells (or of the table). */
+  /** Left edge of the selected cells (or of the table); shared with the cells on the left. */
   left: boolean;
-  /** Right edge of the selected cells (or of the table). */
+  /** Right edge of the selected cells (or of the table); shared with the cells on the right. */
   right: boolean;
-  /** Horizontal and vertical lines between the selected cells. */
+  /** Horizontal and vertical lines between the selected cells (or between all the cells). */
   inner: boolean;
 }
 
@@ -160,7 +189,13 @@ const LINK_BUBBLE_SIZE = 20;
 /** Narrowest width an image can be resized to (px). */
 const MIN_IMAGE_WIDTH = 16;
 
-/** Resize handles of a selected image: north-west, north-east, south-west and south-east corners. */
+/**
+ * Resize handles shown on the corners of a clicked image: `nw` (top left), `ne` (top right), `sw`
+ * (bottom left) and `se` (bottom right). Each one resizes the image proportionally; the handle is
+ * rendered as `.nrte__image-handle[data-corner="…"]` for styling.
+ *
+ * @since 0.3.0
+ */
 export type RteImageCorner = 'nw' | 'ne' | 'sw' | 'se';
 
 const STATE_COMMANDS: RteCommand[] = [
@@ -285,19 +320,37 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * Rich text editor that takes HTML as input and emits HTML.
+ * Lightweight rich text editor (standalone, signals, `OnPush`, zoneless-friendly) that takes HTML
+ * as input and emits HTML.
  *
- * Works with a two-way binding (`[(value)]`), `ngModel` or reactive forms (it is a
- * `ControlValueAccessor`). Incoming and pasted HTML is sanitized (see {@link sanitizeHtml}).
+ * **Binding** — pick one:
+ * - two-way binding `[(value)]` (or `[value]` + `(valueChange)`);
+ * - `ngModel`, `[formControl]` or `formControlName` (the editor is a `ControlValueAccessor`);
+ * - {@link control | [control]}: a form control bound directly, without the forms directives.
  *
- * Theme it with CSS custom properties on the host (`--nrte-accent`, `--nrte-border`,
- * `--nrte-radius`…).
+ * **Safety** — the incoming value, pasted HTML and {@link insertHtml} are sanitized with
+ * {@link sanitizeHtml} (allow-list: no `<script>`, no `on*` handlers, no `javascript:` URLs).
+ *
+ * **Customization** — {@link toolbar} / {@link tableToolbar} choose the buttons, {@link hide} turns
+ * off commands and features, {@link RteIconDirective | rteIcon} templates replace icons, CSS
+ * variables (`--nrte-accent`, `--nrte-btn-size`, `--nrte-icon-size`…) set the theme, and
+ * {@link labels} translates the texts ({@link RTE_LABELS_FR} included).
  *
  * @example
  * ```html
+ * <!-- two-way binding -->
  * <ngx-rich-text-editor [(value)]="html" placeholder="Write something…" />
- * <ngx-rich-text-editor formControlName="body" [labels]="frLabels" />
+ *
+ * <!-- reactive forms, French texts, smaller toolbar -->
+ * <ngx-rich-text-editor formControlName="body" [labels]="fr" [hide]="['table', 'source']" />
  * ```
+ * @example
+ * ```ts
+ * // public methods
+ * editor = viewChild.required(RichTextEditorComponent);
+ * this.editor().insertHtml('<p>Signature</p>');
+ * ```
+ * @since 0.1.0
  */
 @Component({
   selector: 'ngx-rich-text-editor',
@@ -316,133 +369,333 @@ function escapeHtml(text: string): string {
 })
 export class RichTextEditorComponent implements ControlValueAccessor {
   /**
-   * HTML content of the editor. Supports two-way binding: `[(value)]="html"`.
-   * An empty editor emits `''`.
+   * HTML content of the editor (signal `model`).
+   *
+   * - Supports two-way binding: `[(value)]="html"`, or `[value]` + `(valueChange)`.
+   * - The incoming HTML is sanitized before it is shown (unless {@link sanitize} is `false`); the
+   *   emitted HTML is the editor's content, so it may differ slightly from what was given (e.g.
+   *   dropped `<script>`, normalized attributes).
+   * - Emits on every edit; an empty editor (no text, image, line or table) emits `''`.
+   *
    * @default ''
+   * @example
+   * ```html
+   * <ngx-rich-text-editor [(value)]="html" />
+   * <ngx-rich-text-editor [value]="initialHtml" (valueChange)="save($event)" />
+   * ```
+   * @see {@link control} and the forms directives for form integration
+   * @since 0.1.0
    */
   readonly value = model<string>('');
   /**
-   * Text shown while the editor is empty.
+   * Text shown in grey while the editor is empty (rendered with CSS, never part of the value).
+   *
    * @default ''
+   * @example
+   * ```html
+   * <ngx-rich-text-editor placeholder="Write your message…" />
+   * ```
+   * @since 0.1.0
    */
   readonly placeholder = input<string>('');
   /**
-   * Buttons of the main toolbar, in order. Use `'|'` for separators.
+   * Buttons of the main toolbar, in order. Use `'|'` for a separator.
+   *
+   * To keep the default layout and only drop a few buttons, use {@link hide} instead: it also
+   * removes the separators left alone.
+   *
    * @default RTE_DEFAULT_TOOLBAR
-   * @example [toolbar]="['bold', 'italic', '|', 'link', 'image']"
+   * @example
+   * ```html
+   * <ngx-rich-text-editor [toolbar]="['bold', 'italic', 'underline', '|', 'unorderedList', 'orderedList', '|', 'link', 'image']" />
+   * ```
+   * @see {@link RTE_DEFAULT_TOOLBAR} for the default layout
+   * @see {@link RteCommand} for every available command
+   * @since 0.1.0
    */
   readonly toolbar = input<readonly RteToolbarItem[]>(RTE_DEFAULT_TOOLBAR);
   /**
-   * Buttons of the floating bar shown above a table while the caret is in it. `[]` hides the bar.
+   * Buttons of the floating bar shown above a table while the caret is in it. Use `'|'` for a
+   * separator; `[]` hides the bar (same as `hide: ['tableToolbar']`).
+   *
    * @default RTE_TABLE_TOOLBAR
+   * @example
+   * ```html
+   * <!-- rows and columns only, no formatting -->
+   * <ngx-rich-text-editor [tableToolbar]="['tableRowAbove', 'tableRowBelow', 'tableRowDelete', '|', 'tableColLeft', 'tableColRight', 'tableColDelete']" />
+   * ```
+   * @see {@link RTE_TABLE_TOOLBAR}
+   * @since 0.4.0
    */
   readonly tableToolbar = input<readonly RteToolbarItem[]>(RTE_TABLE_TOOLBAR);
   /**
-   * Commands and features to turn off. A hidden command is taken out of both toolbars, and its
-   * keyboard shortcut and `execute()` are ignored (hiding `image` also blocks dropped / pasted
-   * images). Features: `imageResize`, `imageMove`, `imageDrop`, `columnResize`, `cellSelection`,
-   * `linkOpen`, `tableToolbar`.
+   * Commands and features to turn off.
+   *
+   * **Commands** ({@link RteCommand}): the button disappears from the main toolbar and the table
+   * bar (separators left alone are removed), its keyboard shortcut (<kbd>Ctrl/⌘+B</kbd>, `I`, `U`,
+   * `K`) and {@link execute} are ignored. Hiding `image` also blocks dropped / pasted image files.
+   *
+   * **Features** ({@link RteFeature}):
+   *
+   * | Feature         | Turns off                                                  |
+   * | --------------- | ---------------------------------------------------------- |
+   * | `imageResize`   | resize handles on a clicked image                          |
+   * | `imageMove`     | moving an image by dragging it                             |
+   * | `imageDrop`     | inserting dropped / pasted image files                     |
+   * | `columnResize`  | resizing table columns from their borders                  |
+   * | `cellSelection` | selecting table cells (drag, Shift+click)                  |
+   * | `linkOpen`      | "open link" button and <kbd>Ctrl/⌘ + click</kbd> on links  |
+   * | `tableToolbar`  | the floating table bar                                     |
+   *
+   * The list can change at any time (e.g. bound to a signal).
+   *
    * @default []
-   * @example [hide]="['image', 'table', 'source', 'columnResize']"
+   * @example
+   * ```html
+   * <ngx-rich-text-editor [(value)]="html" [hide]="['image', 'table', 'source', 'columnResize']" />
+   * ```
+   * @see {@link RteHideable}
+   * @since 0.4.0
    */
   readonly hide = input<readonly RteHideable[]>([]);
   /**
-   * Hides the main toolbar (keyboard shortcuts and the public methods still work).
+   * Hides the main toolbar entirely. Keyboard shortcuts, the table bar and the public methods
+   * still work, so you can drive the editor from your own buttons with {@link execute}.
+   *
    * @default false
+   * @example
+   * ```html
+   * <ngx-rich-text-editor hideToolbar #ed />
+   * <button (click)="ed.execute('bold')">Bold</button>
+   * ```
+   * @since 0.1.0
    */
   readonly hideToolbar = input(false, { transform: booleanAttribute });
   /**
-   * Read-only mode: the content can't be edited and the toolbar is disabled.
-   * Also set automatically when the bound form control is disabled.
+   * Read-only mode: the content can't be edited, the toolbar buttons are disabled and links behave
+   * as normal links. Also turned on while the bound form control is disabled (forms directives or
+   * {@link control}).
+   *
    * @default false
+   * @example
+   * ```html
+   * <ngx-rich-text-editor [value]="article.body" readonly />
+   * ```
+   * @since 0.1.0
    */
   readonly readonly = input(false, { transform: booleanAttribute });
   /**
-   * Overrides of the tooltips and popup texts, merged over {@link RTE_DEFAULT_LABELS}.
-   * Pass {@link RTE_LABELS_FR} for French.
+   * Texts of the editor: button tooltips and popup texts, merged over
+   * {@link RTE_DEFAULT_LABELS} (English). Only the keys you give are replaced.
+   *
    * @default {}
-   * @example [labels]="{ bold: 'Fett', italic: 'Kursiv' }"
+   * @example
+   * ```ts
+   * import { RTE_LABELS_FR } from '@biliboobrian/ngx-rich-text-editor';
+   * fr = RTE_LABELS_FR;                       // French, included
+   * de = { bold: 'Fett', italic: 'Kursiv' };  // or your own texts
+   * ```
+   * ```html
+   * <ngx-rich-text-editor [labels]="fr" />
+   * ```
+   * @see {@link RteLabelKey} for every key
+   * @since 0.1.0
    */
   readonly labels = input<Partial<Record<RteLabelKey, string>>>({});
   /**
    * Swatches of the text color palettes (`textColor`, `tableTextColor`) and of the borders popup.
-   * Any CSS color.
+   * Any CSS color; shown 6 per row, plus "none" and a custom color picker.
+   *
    * @default RTE_TEXT_COLORS
+   * @example
+   * ```html
+   * <ngx-rich-text-editor [textColors]="['#000000', '#c92a2a', '#1864ab', '#2b8a3e']" />
+   * ```
+   * @see {@link RTE_TEXT_COLORS}
+   * @since 0.2.0
    */
   readonly textColors = input<readonly string[]>(RTE_TEXT_COLORS);
   /**
-   * Swatches of the background color palettes (`backgroundColor`, `tableBackground`). Any CSS color.
+   * Swatches of the background color palettes (`backgroundColor`, `tableBackground`). Any CSS
+   * color; shown 6 per row, plus "none" and a custom color picker.
+   *
    * @default RTE_BACKGROUND_COLORS
+   * @example
+   * ```html
+   * <ngx-rich-text-editor [backgroundColors]="['#fff3bf', '#d3f9d8', '#ffe3e3']" />
+   * ```
+   * @see {@link RTE_BACKGROUND_COLORS}
+   * @since 0.2.0
    */
   readonly backgroundColors = input<readonly string[]>(RTE_BACKGROUND_COLORS);
   /**
-   * Sanitizes the incoming value, pasted HTML and {@link insertHtml} (strongly recommended:
-   * disable it only for fully trusted content).
+   * Sanitizes the incoming value, pasted HTML and {@link insertHtml} with {@link sanitizeHtml}.
+   *
+   * **Strongly recommended**: turn it off only for fully trusted content, the editor would
+   * otherwise run any script or event handler found in the HTML.
+   *
    * @default true
+   * @see {@link sanitizeOptions} to keep more tags, attributes or styles instead of turning it off
+   * @since 0.1.0
    */
   readonly sanitize = input(true, { transform: booleanAttribute });
   /**
-   * Options of the sanitizer: extra tags, attributes or styles to keep, keep classes…
+   * Options of the sanitizer: extra tags, attributes or CSS properties to keep, keep `class`
+   * attributes. Dangerous content (scripts, event handlers, `javascript:` URLs) is always removed.
+   *
    * @default {}
-   * @example [sanitizeOptions]="{ allowedStyles: ['font-size'], keepClasses: true }"
+   * @example
+   * ```html
+   * <ngx-rich-text-editor [sanitizeOptions]="{ allowedStyles: ['font-size'], allowedAttributes: ['data-id'], keepClasses: true }" />
+   * ```
+   * @see {@link RteSanitizeOptions}
+   * @since 0.1.0
    */
   readonly sanitizeOptions = input<RteSanitizeOptions>({});
   /**
-   * Pastes clipboard content as plain text, dropping its formatting.
+   * Pastes clipboard content as plain text, dropping its formatting (fonts, colors, tables…).
+   * Pasted image files are still inserted (see {@link imageUpload}).
+   *
    * @default false
+   * @since 0.1.0
    */
   readonly pastePlainText = input(false, { transform: booleanAttribute });
   /**
-   * Inserted links open in a new tab (`target="_blank" rel="noopener noreferrer"`).
+   * Links inserted with the `link` button open in a new tab: they get
+   * `target="_blank" rel="noopener noreferrer"`.
+   *
    * @default false
+   * @since 0.1.0
    */
   readonly linkTargetBlank = input(false, { transform: booleanAttribute });
   /**
-   * Asks the user for the URL of a link or an image, e.g. by opening your own dialog. May return a
-   * Promise; `null` / `undefined` cancels, `''` removes an existing link.
-   * @default `window.prompt`
+   * Asks the user for a URL: for the `link` button, and for the `image` button with
+   * `imageSource="url"`. Plug your own dialog here; it may return a Promise.
+   *
+   * Return `null` / `undefined` to cancel; for a link, `''` removes it. Unsafe URLs
+   * (`javascript:`…) are ignored.
+   *
+   * @default a `window.prompt` asking "URL du lien / Link URL"
+   * @example
+   * ```ts
+   * askUrl: RtePromptFn = (kind, current) =>
+   *   firstValueFrom(this.dialog.open(UrlDialog, { data: { kind, current } }).afterClosed());
+   * ```
+   * ```html
+   * <ngx-rich-text-editor [promptFn]="askUrl" />
+   * ```
+   * @see {@link RtePromptFn}
+   * @since 0.1.0
    */
   readonly promptFn = input<RtePromptFn>(defaultPrompt);
   /**
-   * Handles image files picked with the `image` button, dropped or pasted in the editor: return the
-   * URL to use as `src` (e.g. after an upload). Throw or reject to skip a file.
-   * @default embeds the image in base64 (`data:` URL)
+   * Turns image files into the `src` of the inserted images: files picked with the `image` button,
+   * dropped from the desktop or pasted from the clipboard. Return the URL to use (e.g. after an
+   * upload to your server); throw or reject to skip a file. Unsafe URLs are ignored.
+   *
+   * @default embeds the image in base64 (`data:image/…;base64,…` URL)
+   * @example
+   * ```ts
+   * upload: RteImageUploadFn = async (file) => {
+   *   const body = new FormData();
+   *   body.append('file', file);
+   *   const res = await fetch('/api/images', { method: 'POST', body });
+   *   return (await res.json()).url;
+   * };
+   * ```
+   * ```html
+   * <ngx-rich-text-editor [imageUpload]="upload" />
+   * ```
+   * @see {@link RteImageUploadFn}
+   * @since 0.2.0
    */
   readonly imageUpload = input<RteImageUploadFn>(readAsDataUrl);
   /**
-   * What the `image` button asks for: `'file'` opens the file picker (images from the user's
-   * computer, embedded in base64 unless `imageUpload` says otherwise), `'url'` asks for an image URL
-   * through `promptFn`.
+   * What the `image` button asks for:
+   * - `'file'`: opens the file picker; the chosen images (png, jpeg, gif, webp, bmp, several at
+   *   once) are inserted at the caret, in base64 unless {@link imageUpload} says otherwise;
+   * - `'url'`: asks for an image URL through {@link promptFn}.
+   *
    * @default 'file'
+   * @example
+   * ```html
+   * <ngx-rich-text-editor imageSource="url" />
+   * ```
+   * @since 0.4.0
    */
   readonly imageSource = input<'file' | 'url'>('file');
   /**
-   * Minimum height of the editable area (any CSS length).
+   * Minimum height of the editable area, any CSS length (`px`, `rem`, `vh`…).
+   *
    * @default '160px'
+   * @example
+   * ```html
+   * <ngx-rich-text-editor minHeight="300px" />
+   * ```
+   * @since 0.1.0
    */
   readonly minHeight = input<string>('160px');
   /**
-   * Maximum height of the editable area before it scrolls (any CSS length); `null`: grows freely.
+   * Maximum height of the editable area, any CSS length; beyond it the content scrolls (the
+   * toolbar stays visible). `null`: the editor grows with its content.
+   *
    * @default null
+   * @example
+   * ```html
+   * <ngx-rich-text-editor maxHeight="60vh" />
+   * ```
+   * @since 0.1.0
    */
   readonly maxHeight = input<string | null>(null);
   /**
-   * Accessible label (`aria-label`) of the editable area.
+   * Accessible name (`aria-label`) of the editable area, read by screen readers. Set it when the
+   * page has several editors or no visible label.
+   *
    * @default 'Rich text editor'
+   * @example
+   * ```html
+   * <ngx-rich-text-editor ariaLabel="Message body" />
+   * ```
+   * @since 0.1.0
    */
   readonly ariaLabel = input<string>('Rich text editor');
   /**
-   * Form control bound directly, without the forms directives: the editor shows its value and
-   * follows its disabled state; edits update it (and mark it dirty), leaving the editor marks it
-   * touched. Use it instead of `[formControl]` / `formControlName` / `ngModel`, not together.
+   * Form control bound directly, without importing `ReactiveFormsModule`. Accepts any
+   * `AbstractControl` (`FormControl<string>`, `FormControl<string | null>`…).
+   *
+   * - the editor shows the control's value and follows its later `setValue` / `patchValue`
+   *   (`null` shows an empty editor);
+   * - edits update the control and mark it **dirty**; leaving the editor marks it **touched**;
+   * - a **disabled** control makes the editor read-only;
+   * - binding another control (or `null`) unsubscribes from the previous one.
+   *
+   * Use it **instead of** `[formControl]` / `formControlName` / `ngModel`, not together.
+   *
    * @default null
-   * @example <ngx-rich-text-editor [control]="form.controls.body" />
+   * @example
+   * ```html
+   * <ngx-rich-text-editor [control]="form.controls.body" />
+   * ```
+   * @since 0.4.0
    */
   readonly control = input<AbstractControl<string | null | undefined> | null>(null);
 
-  /** Emitted when the editable area gains focus. */
+  /**
+   * Emitted when the editable area gains focus.
+   *
+   * @example
+   * ```html
+   * <ngx-rich-text-editor (editorFocus)="editing = true" (editorBlur)="editing = false" />
+   * ```
+   * @since 0.1.0
+   */
   readonly editorFocus = output<void>();
-  /** Emitted when the editable area (or the HTML source textarea) loses focus. */
+  /**
+   * Emitted when the editable area (or the HTML source textarea) loses focus. Clicking the toolbar
+   * doesn't blur the editor.
+   *
+   * @since 0.1.0
+   */
   readonly editorBlur = output<void>();
 
   protected readonly root = viewChild.required<ElementRef<HTMLDivElement>>('root');
@@ -595,25 +848,45 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   // ---------------------------------------------------------------- public API
 
-  /** Focuses the editable area. */
+  /**
+   * Focuses the editable area so the user can type right away (e.g. when a form opens).
+   *
+   * @example
+   * ```ts
+   * editor = viewChild.required(RichTextEditorComponent);
+   * ngAfterViewInit() { this.editor().focus(); }
+   * ```
+   * @since 0.1.0
+   */
   focus(): void {
     this.editable().nativeElement.focus();
   }
 
   /**
-   * Returns the current HTML, the same as {@link value}.
+   * Returns the current HTML, the same as reading {@link value}.
+   *
    * @returns the HTML of the editor, `''` when it is empty
+   * @example
+   * ```ts
+   * const html = this.editor().getHtml();
+   * ```
+   * @since 0.1.0
    */
   getHtml(): string {
     return this.value() ?? '';
   }
 
   /**
-   * Inserts HTML at the caret position (or at the end if the editor never had the focus),
-   * replacing the selected content. The HTML is sanitized unless {@link sanitize} is off.
-   * The insertion can be undone.
-   * @param html the HTML to insert
-   * @example editor.insertHtml('<p>Hello <b>world</b></p>');
+   * Inserts HTML at the caret position, replacing the selected content; at the end of the content
+   * if the editor never had the focus. The HTML is sanitized unless {@link sanitize} is off, and
+   * the insertion can be undone (<kbd>Ctrl/⌘+Z</kbd>).
+   *
+   * @param html - the HTML to insert
+   * @example
+   * ```ts
+   * this.editor().insertHtml('<p>Best regards,<br><b>The team</b></p>');
+   * ```
+   * @since 0.1.0
    */
   insertHtml(html: string): void {
     this.restoreSelection();
@@ -622,15 +895,27 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   /**
-   * Applies a color; `null` removes it. `textColor` / `backgroundColor` color the selected text,
-   * `tableTextColor` / `tableBackground` the cells of the table holding the caret (`scope`).
-   * While cells are selected, the text colors apply to the selected cells.
-   * @param kind  what to color
-   * @param color any CSS color, or `null` to remove the color
-   * @param scope cells colored by the table kinds; defaults to the scope chosen in the palette
+   * Applies a color, as the palettes do; `null` removes it.
+   *
+   * - `textColor` / `backgroundColor` color the selected text (`<span style="…">`); while table
+   *   cells are selected they color the selected cells instead;
+   * - `tableTextColor` / `tableBackground` color cells of the table holding the caret, chosen by
+   *   `scope` (does nothing outside a table).
+   *
+   * The color becomes the one shown under the toolbar button. Ignored in read-only mode and in the
+   * HTML source view. The change can be undone.
+   *
+   * @param kind - what to color, see {@link RteColorKind}
+   * @param color - any CSS color (`'#c92a2a'`, `'rgb(…)'`, `'red'`…), or `null` to remove the color
+   * @param scope - cells colored by the table kinds, see {@link RteTableScope}; defaults to the
+   *   scope last chosen in the palette (`'cell'` at first)
    * @example
-   * editor.setColor('textColor', '#c92a2a');
-   * editor.setColor('tableBackground', '#fff3bf', 'row');
+   * ```ts
+   * this.editor().setColor('textColor', '#c92a2a');          // red text
+   * this.editor().setColor('backgroundColor', null);         // remove the highlight
+   * this.editor().setColor('tableBackground', '#fff3bf', 'row');
+   * ```
+   * @since 0.2.0
    */
   setColor(kind: RteColorKind, color: string | null, scope: RteTableScope = this.tableScope()): void {
     if (this.isDisabled() || this.sourceMode()) return;
@@ -657,14 +942,27 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   /**
-   * Sets table borders on the chosen sides of the selected cells, or of the whole table holding
-   * the caret. Does nothing when the caret isn't in a table.
-   * @param width         line width in px; `0` hides the lines
-   * @param options.color any CSS color; defaults to the theme border color (`--nrte-border`)
-   * @param options.sides sides to change; omitted sides default to `true`
+   * Sets table borders, as the borders popup does: on the chosen sides of the selected cells, or
+   * of the whole table holding the caret. Written as `border-*` styles on the cells (neighbouring
+   * cells sharing a line get the same border), so the HTML renders the same outside the editor.
+   * Does nothing outside a table, in read-only mode or in the HTML source view. Can be undone.
+   *
+   * @param width - line width in px; `0` hides the lines (`border-*: hidden`)
+   * @param options - optional color and sides
+   * @param options.color - any CSS color; defaults to the theme border color (`--nrte-border`)
+   * @param options.sides - sides to change, see {@link RteBorderSides}; omitted sides default to
+   *   `true`
    * @example
+   * ```ts
+   * this.editor().setTableBorder(1);                          // every line, 1px, theme color
+   * this.editor().setTableBorder(0, { sides: { inner: false } }); // no outer frame
    * // bottom line only, 2px red
-   * editor.setTableBorder(2, { color: '#c92a2a', sides: { top: false, left: false, right: false, inner: false } });
+   * this.editor().setTableBorder(2, {
+   *   color: '#c92a2a',
+   *   sides: { top: false, left: false, right: false, inner: false },
+   * });
+   * ```
+   * @since 0.2.0
    */
   setTableBorder(width: number, options: { color?: string | null; sides?: Partial<RteBorderSides> } = {}): void {
     if (this.isDisabled() || this.sourceMode()) return;
@@ -701,12 +999,28 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   /**
-   * Runs a toolbar command, as if its button was clicked. Commands opening a popup (colors,
-   * borders) toggle it; `link` / `image` ask for the URL through {@link promptFn}.
-   * Ignored in read-only mode.
-   * @param command the command to run
-   * @returns resolves once the command is applied (after the URL prompt for `link` / `image`)
-   * @example await editor.execute('bold');
+   * Runs a command, as if its toolbar button was clicked (the button doesn't need to be in the
+   * toolbar).
+   *
+   * - toggles (`bold`, `h2`, `unorderedList`…) switch on or off for the selection;
+   * - `textColor`, `backgroundColor`, `tableTextColor`, `tableBackground` and `tableBorder` open or
+   *   close their popup;
+   * - `link` asks for the URL through {@link promptFn}; `image` opens the file picker (or asks for a
+   *   URL with `imageSource="url"`);
+   * - table commands act on the table holding the caret;
+   * - `source` switches the HTML source view.
+   *
+   * Ignored in read-only mode, for commands turned off with {@link hide}, and (except `source`) in
+   * the HTML source view.
+   *
+   * @param command - the command to run, see {@link RteCommand}
+   * @returns a Promise resolved once the command is applied (after the URL prompt for `link`)
+   * @example
+   * ```ts
+   * await this.editor().execute('bold');
+   * await this.editor().execute('tableRowBelow');
+   * ```
+   * @since 0.1.0
    */
   async execute(command: RteCommand): Promise<void> {
     if (this.isDisabled() || this.isHidden(command)) return;
@@ -757,22 +1071,42 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   // ------------------------------------------------- ControlValueAccessor
 
-  /** Forms API (`ControlValueAccessor`): sets the HTML from the form control. */
+  /**
+   * Forms API (`ControlValueAccessor`), called by Angular forms: shows the control's HTML.
+   * `null` / `undefined` show an empty editor. Not meant to be called directly.
+   *
+   * @param value - the HTML of the form control
+   */
   writeValue(value: string | null | undefined): void {
     this.value.set(value ?? '');
   }
 
-  /** Forms API (`ControlValueAccessor`): registers the callback notified of each change. */
+  /**
+   * Forms API (`ControlValueAccessor`), called by Angular forms: registers the callback notified
+   * with the new HTML on each edit. Not meant to be called directly.
+   *
+   * @param fn - callback receiving the new HTML
+   */
   registerOnChange(fn: (value: string) => void): void {
     this.onChange = fn;
   }
 
-  /** Forms API (`ControlValueAccessor`): registers the callback notified when the editor loses focus. */
+  /**
+   * Forms API (`ControlValueAccessor`), called by Angular forms: registers the callback marking the
+   * control touched when the editor loses focus. Not meant to be called directly.
+   *
+   * @param fn - callback marking the control touched
+   */
   registerOnTouched(fn: () => void): void {
     this.onTouched = fn;
   }
 
-  /** Forms API (`ControlValueAccessor`): a disabled control makes the editor read-only. */
+  /**
+   * Forms API (`ControlValueAccessor`), called by Angular forms: a disabled control makes the
+   * editor read-only (like {@link readonly}). Not meant to be called directly.
+   *
+   * @param isDisabled - the control's disabled state
+   */
   setDisabledState(isDisabled: boolean): void {
     this.formDisabled.set(isDisabled);
   }

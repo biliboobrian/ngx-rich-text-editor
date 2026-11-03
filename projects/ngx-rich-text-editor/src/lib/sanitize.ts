@@ -8,27 +8,49 @@
  *   inline styles are reduced to a small set of harmless properties.
  */
 
-/** Options of {@link sanitizeHtml} and of the editor's `sanitizeOptions` input. */
+/**
+ * Options of {@link sanitizeHtml} and of the editor's `sanitizeOptions` input: what to keep on top
+ * of the default allow-list. Dangerous content is always removed, whatever the options.
+ *
+ * @example
+ * ```ts
+ * const options: RteSanitizeOptions = { allowedTags: ['kbd'], allowedStyles: ['font-size'], keepClasses: true };
+ * ```
+ * @since 0.1.0
+ */
 export interface RteSanitizeOptions {
   /**
    * Extra tags to keep, besides the default ones (text formatting, headings, lists, links,
-   * images, tables…). Tags that can run code (`script`, `iframe`, `svg`…) are always removed.
-   * @example ['abbr', 'kbd']
+   * images, tables…). Case-insensitive. Unknown tags are unwrapped (their content is kept); tags
+   * that can run code or load content (`script`, `style`, `iframe`, `svg`, `form`…) are always
+   * removed with their content.
+   *
+   * @default []
+   * @example ['abbr', 'kbd', 'dl', 'dt', 'dd']
    */
   allowedTags?: string[];
   /**
-   * Extra attributes to keep on every allowed tag. Event handlers (`on*`) are always removed.
+   * Extra attributes to keep on every allowed tag (by default only `title`, `dir`, `lang`, `style`
+   * and a few per tag: `href`, `src`, `alt`, `width`, `colspan`…). Case-insensitive. Event
+   * handlers (`on*`) are always removed.
+   *
+   * @default []
    * @example ['data-id', 'id']
    */
   allowedAttributes?: string[];
   /**
-   * Extra CSS properties to keep in `style` attributes. Values with `url()`, `expression()` or
-   * `javascript:` are always removed.
-   * @example ['font-size', 'font-family']
+   * Extra CSS properties to keep in `style` attributes (by default: alignment, font weight and
+   * style, text decoration, colors, indentation, table width and borders). Case-insensitive.
+   * Values with `url()`, `expression()` or `javascript:` are always removed.
+   *
+   * @default []
+   * @example ['font-size', 'font-family', 'line-height']
    */
   allowedStyles?: string[];
   /**
-   * Keeps `class` attributes (dropped by default: pasted content is usually full of them).
+   * Keeps `class` attributes. Dropped by default: content pasted from Word or web pages is full of
+   * classes that mean nothing in your app.
+   *
    * @default false
    */
   keepClasses?: boolean;
@@ -77,12 +99,21 @@ const SAFE_URL = /^(?:https?:|mailto:|tel:|#|\/|\.{1,2}\/|[^:/?#]*(?:[/?#]|$))/i
 const SAFE_DATA_IMAGE = /^data:image\/(?:png|gif|jpe?g|webp|bmp);base64,[a-z0-9+/=\s]+$/i;
 
 /**
- * Tells whether a URL is safe for an `href` / `src`: http(s), mailto, tel, relative URLs and
- * anchors are; `javascript:`, `vbscript:`, `data:` (by default)… are not.
- * @param url            the URL to check
- * @param allowDataImage also accept base64 `data:image/…` URLs (png, gif, jpeg, webp, bmp)
- * @returns true if the URL can be used
- * @example isSafeUrl('https://example.com'); // true
+ * Tells whether a URL is safe for an `href` / `src`. Accepted: `http(s):`, `mailto:`, `tel:`,
+ * relative URLs (`/a`, `./a`, `page.html`) and anchors (`#top`). Refused: `javascript:`,
+ * `vbscript:`, `data:` (unless `allowDataImage`)…, even disguised with spaces, tabs or mixed case.
+ *
+ * @param url - the URL to check
+ * @param allowDataImage - also accept base64 images: `data:image/(png|gif|jpeg|webp|bmp);base64,…`
+ *   (not SVG, which can hold scripts)
+ * @returns `true` if the URL can be used
+ * @example
+ * ```ts
+ * isSafeUrl('https://example.com');           // true
+ * isSafeUrl('java\tscript:alert(1)');          // false
+ * isSafeUrl('data:image/png;base64,…', true);  // true
+ * ```
+ * @since 0.1.0
  */
 export function isSafeUrl(url: string, allowDataImage = false): boolean {
   // strip whitespace and control characters browsers ignore (e.g. "java\tscript:")
@@ -107,13 +138,28 @@ function cleanStyle(value: string, allowed: Set<string>): string {
 }
 
 /**
- * Sanitizes an HTML string and returns safe HTML: unknown tags are unwrapped, dangerous ones
- * removed with their content, attributes, URLs and inline styles are filtered.
- * @param html    untrusted HTML
- * @param doc     the Document to use for parsing (defaults to the global `document`)
- * @param options extra tags, attributes or styles to keep
+ * Sanitizes an HTML string with an allow-list and returns safe HTML. The same function the editor
+ * uses for its value, pasted HTML and `insertHtml()`; use it on the server-side rendering of the
+ * emitted HTML too.
+ *
+ * - the HTML is parsed in an inert `<template>`: no script runs, no image loads;
+ * - unknown tags are unwrapped (their content is kept), dangerous ones (`script`, `style`,
+ *   `iframe`, `svg`, `form`…) are removed with their content, comments are removed;
+ * - attributes are filtered per tag, event handlers (`on*`) are removed, `href` / `src` must pass
+ *   {@link isSafeUrl}, `target="_blank"` links get `rel="noopener noreferrer"`;
+ * - inline styles keep only harmless properties, without `url()` or `expression()`.
+ *
+ * @param html - untrusted HTML
+ * @param doc - the Document used for parsing; defaults to the global `document` (pass one from
+ *   `DOCUMENT` or a DOM implementation such as domino / jsdom on the server)
+ * @param options - extra tags, attributes or styles to keep, see {@link RteSanitizeOptions}
  * @returns the safe HTML (`''` for an empty input)
- * @example sanitizeHtml('<p onclick="x()">Hi<script>alert(1)</script></p>'); // '<p>Hi</p>'
+ * @example
+ * ```ts
+ * sanitizeHtml('<p onclick="x()">Hi<script>alert(1)</script></p>'); // '<p>Hi</p>'
+ * sanitizeHtml(html, document, { allowedStyles: ['font-size'] });
+ * ```
+ * @since 0.1.0
  */
 export function sanitizeHtml(html: string, doc: Document = document, options: RteSanitizeOptions = {}): string {
   if (!html) return '';

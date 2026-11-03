@@ -1,6 +1,25 @@
 /**
- * Every action the toolbar can trigger. Use them in the `toolbar` input or with
- * `RichTextEditorComponent.execute()`.
+ * Every action the toolbars can trigger. Use them in the `toolbar` / `tableToolbar` inputs, in
+ * `hide`, in `rteIcon` templates or with `RichTextEditorComponent.execute()`.
+ *
+ * | Group      | Commands |
+ * | ---------- | -------- |
+ * | History    | `undo`, `redo` |
+ * | Blocks     | `paragraph`, `h1`, `h2`, `h3`, `blockquote`, `code` (`<pre>`), `horizontalRule` |
+ * | Text       | `bold` (<kbd>Ctrl/⌘+B</kbd>), `italic` (<kbd>Ctrl/⌘+I</kbd>), `underline` (<kbd>Ctrl/⌘+U</kbd>), `strikeThrough`, `subscript`, `superscript`, `clear` |
+ * | Colors     | `textColor`, `backgroundColor` (open a palette) |
+ * | Lists      | `unorderedList`, `orderedList`, `indent` (<kbd>Tab</kbd>), `outdent` (<kbd>Shift+Tab</kbd>) |
+ * | Alignment  | `alignLeft`, `alignCenter`, `alignRight`, `alignJustify` |
+ * | Insert     | `link` (<kbd>Ctrl/⌘+K</kbd>), `unlink`, `image`, `table` |
+ * | Tables     | `tableRowAbove`, `tableRowBelow`, `tableRowDelete`, `tableColLeft`, `tableColRight`, `tableColDelete`, `tableTextColor`, `tableBackground`, `tableBorder`, `tableDelete` |
+ * | View       | `source` (HTML source view) |
+ *
+ * @example
+ * ```ts
+ * const toolbar: RteToolbarItem[] = ['bold', 'italic', '|', 'link'];
+ * await editor.execute('h2');
+ * ```
+ * @since 0.1.0
  */
 export type RteCommand =
   /** Undoes the last change. */
@@ -85,10 +104,36 @@ export type RteCommand =
   | 'clear'
   | 'source';
 
-/** A toolbar entry: a command, or `'|'` for a visual separator. */
+/**
+ * An entry of the `toolbar` / `tableToolbar` inputs: a command, or `'|'` for a visual separator.
+ *
+ * @example
+ * ```ts
+ * const toolbar: RteToolbarItem[] = ['undo', 'redo', '|', 'bold', 'italic'];
+ * ```
+ * @since 0.1.0
+ */
 export type RteToolbarItem = RteCommand | '|';
 
-/** Behaviours that are not toolbar buttons and can be turned off with the `hide` input. */
+/**
+ * Behaviours that are not toolbar buttons and can be turned off with the `hide` input.
+ *
+ * | Feature         | Turns off                                                  |
+ * | --------------- | ---------------------------------------------------------- |
+ * | `imageResize`   | resize handles on a clicked image                          |
+ * | `imageMove`     | moving an image by dragging it elsewhere in the text       |
+ * | `imageDrop`     | inserting dropped / pasted image files                     |
+ * | `columnResize`  | resizing table columns from their borders                  |
+ * | `cellSelection` | selecting table cells (drag, Shift+click)                  |
+ * | `linkOpen`      | "open link" button and <kbd>Ctrl/⌘ + click</kbd> on links  |
+ * | `tableToolbar`  | the floating table bar                                     |
+ *
+ * @example
+ * ```html
+ * <ngx-rich-text-editor [hide]="['imageResize', 'columnResize']" />
+ * ```
+ * @since 0.4.0
+ */
 export type RteFeature =
   /** Resize handles on a clicked image. */
   | 'imageResize'
@@ -106,14 +151,34 @@ export type RteFeature =
   | 'tableToolbar';
 
 /**
- * What the `hide` input can remove: a command (taken out of both toolbars, its keyboard shortcut
- * and `execute()` are ignored) or a feature.
+ * What the `hide` input can turn off:
+ * - a {@link RteCommand}: taken out of both toolbars, its keyboard shortcut and `execute()` are
+ *   ignored (hiding `image` also blocks dropped / pasted images);
+ * - a {@link RteFeature}: a behaviour that isn't a button.
+ *
+ * @example
+ * ```ts
+ * hidden: RteHideable[] = ['source', 'table', 'imageResize'];
+ * ```
+ * @since 0.4.0
  */
 export type RteHideable = RteCommand | RteFeature;
 
 /**
- * Texts of the editor that can be translated with the `labels` input: the command tooltips plus
- * the texts of the popups.
+ * Keys of the texts that can be replaced with the `labels` input:
+ * - every {@link RteCommand}: the tooltip (and `aria-label`) of its button;
+ * - `imageResize`, `openLink`: tooltips of the image handles and of the "open link" button;
+ * - `colorNone`, `colorCustom`, `colorAuto`: buttons of the color palettes;
+ * - `scopeSelection`, `scopeCell`, `scopeRow`, `scopeColumn`: scope buttons of the cell palettes;
+ * - `borderSides`, `borderWidth`, `borderColor`, `borderAll`, `borderTop`, `borderBottom`,
+ *   `borderLeft`, `borderRight`, `borderInner`: texts of the borders popup.
+ *
+ * @example
+ * ```ts
+ * labels: Partial<Record<RteLabelKey, string>> = { bold: 'Fett', openLink: 'Link öffnen' };
+ * ```
+ * @see {@link RTE_DEFAULT_LABELS} (English) and {@link RTE_LABELS_FR} (French)
+ * @since 0.2.0
  */
 export type RteLabelKey =
   | RteCommand
@@ -153,24 +218,48 @@ export type RteLabelKey =
   | 'borderInner'
   | 'colorAuto';
 
-/** Default swatches of the text color palettes (12 colors). Override with the `textColors` input. */
+/**
+ * Default swatches of the text color palettes and of the borders popup: 12 colors, from black to
+ * crimson, readable on a white background. Override with the `textColors` input.
+ *
+ * @example
+ * ```ts
+ * colors = [...RTE_TEXT_COLORS, '#ff00ff']; // add a color
+ * ```
+ * @since 0.2.0
+ */
 export const RTE_TEXT_COLORS: readonly string[] = [
   '#000000', '#495057', '#868e96', '#c92a2a', '#e8590c', '#e67700',
   '#2b8a3e', '#0b7285', '#1864ab', '#3b5bdb', '#6741d9', '#a61e4d',
 ];
 
-/** Default swatches of the background color palettes (12 colors). Override with the `backgroundColors` input. */
+/**
+ * Default swatches of the background color palettes: 12 light colors that keep dark text
+ * readable. Override with the `backgroundColors` input.
+ *
+ * @since 0.2.0
+ */
 export const RTE_BACKGROUND_COLORS: readonly string[] = [
   '#fff3bf', '#ffe8cc', '#ffe3e3', '#ffdeeb', '#e5dbff', '#dbe4ff',
   '#d0ebff', '#c5f6fa', '#d3f9d8', '#e9ecef', '#ffd43b', '#8ce99a',
 ];
 
 /**
- * Asks the user for a URL, e.g. by opening your own dialog. May return a Promise.
- * Return `null` / `undefined` to cancel; for a link, `''` removes it.
+ * Asks the user for a URL (the `promptFn` input), e.g. by opening your own dialog. Called by the
+ * `link` button, and by the `image` button when `imageSource` is `'url'`. May return a Promise.
  *
+ * Return the URL, `null` / `undefined` to cancel, or `''` to remove the link being edited. Unsafe
+ * URLs (`javascript:`…) are ignored.
+ *
+ * @param kind - what the URL is for: `'link'` or `'image'`
+ * @param currentValue - URL of the link being edited, `''` otherwise
+ * @returns the URL, or `null` / `undefined` to cancel (or a Promise of it)
  * @example
- * prompt: RtePromptFn = (kind, current) => this.dialog.open(UrlDialog, { data: { kind, current } }).afterClosed();
+ * ```ts
+ * askUrl: RtePromptFn = (kind, current) =>
+ *   firstValueFrom(this.dialog.open(UrlDialog, { data: { kind, current } }).afterClosed());
+ * ```
+ * @since 0.1.0
  */
 export type RtePromptFn = (
   /** What the URL is for. */
@@ -180,22 +269,39 @@ export type RtePromptFn = (
 ) => string | null | undefined | Promise<string | null | undefined>;
 
 /**
- * Turns a dropped or pasted image file into the URL used as `src`: upload it and return its URL,
- * or return a data URL. Throw / reject to skip the file. Unsafe URLs are ignored.
+ * Turns an image file into the URL used as `src` (the `imageUpload` input): files picked with the
+ * `image` button, dropped from the desktop or pasted from the clipboard. Upload the file and return
+ * its URL, or return a data URL (the default embeds the file in base64). Several files are handled
+ * in parallel and inserted together.
  *
+ * @param file - the image file (png, jpeg, gif, webp, bmp…)
+ * @returns the URL to use as `src` (or a Promise of it); throw / reject to skip the file. Unsafe
+ *   URLs are ignored.
  * @example
+ * ```ts
  * upload: RteImageUploadFn = async (file) => {
  *   const body = new FormData();
  *   body.append('file', file);
- *   return (await (await fetch('/api/images', { method: 'POST', body })).json()).url;
+ *   const res = await fetch('/api/images', { method: 'POST', body });
+ *   return (await res.json()).url;
  * };
+ * ```
+ * @since 0.2.0
  */
 export type RteImageUploadFn = (file: File) => string | Promise<string>;
 
 /**
- * Default layout of the main toolbar (every command but the table ones, which are in
- * {@link RTE_TABLE_TOOLBAR}). Copy and edit it to build your own:
- * `[toolbar]="['bold', 'italic', '|', ...]"`.
+ * Default layout of the main toolbar: every command but the table ones (which are in
+ * {@link RTE_TABLE_TOOLBAR}), grouped by separators — history, blocks, text and colors, lists,
+ * alignment, insertions, clear and source.
+ *
+ * Copy it to build your own layout, or keep it and remove buttons with the `hide` input.
+ *
+ * @example
+ * ```ts
+ * toolbar = RTE_DEFAULT_TOOLBAR.filter((item) => item !== 'source');
+ * ```
+ * @since 0.1.0
  */
 export const RTE_DEFAULT_TOOLBAR: readonly RteToolbarItem[] = [
   'undo', 'redo', '|',
@@ -207,7 +313,12 @@ export const RTE_DEFAULT_TOOLBAR: readonly RteToolbarItem[] = [
   'clear', 'source',
 ];
 
-/** Buttons of the floating bar shown above a table while the caret is in it (not configurable). */
+/**
+ * Default buttons of the floating bar shown above a table while the caret is in it: rows,
+ * columns, cell colors and borders, delete the table. Change them with the `tableToolbar` input.
+ *
+ * @since 0.2.0
+ */
 export const RTE_TABLE_TOOLBAR: readonly RteToolbarItem[] = [
   'tableRowAbove', 'tableRowBelow', 'tableRowDelete', '|',
   'tableColLeft', 'tableColRight', 'tableColDelete', '|',
@@ -215,7 +326,13 @@ export const RTE_TABLE_TOOLBAR: readonly RteToolbarItem[] = [
   'tableDelete',
 ];
 
-/** Default (English) texts. Override any of them with the `labels` input. */
+/**
+ * Default (English) texts of the editor: button tooltips and popup texts. Override any of them
+ * with the `labels` input; the keys you don't give keep these texts.
+ *
+ * @see {@link RTE_LABELS_FR} for French
+ * @since 0.1.0
+ */
 export const RTE_DEFAULT_LABELS: Readonly<Record<RteLabelKey, string>> = {
   undo: 'Undo',
   redo: 'Redo',
@@ -278,7 +395,18 @@ export const RTE_DEFAULT_LABELS: Readonly<Record<RteLabelKey, string>> = {
   source: 'HTML source',
 };
 
-/** French texts, ready to pass to the `labels` input: `[labels]="frLabels"` with `frLabels = RTE_LABELS_FR`. */
+/**
+ * French texts of the editor, ready to pass to the `labels` input.
+ *
+ * @example
+ * ```ts
+ * readonly fr = RTE_LABELS_FR;
+ * ```
+ * ```html
+ * <ngx-rich-text-editor [labels]="fr" />
+ * ```
+ * @since 0.1.0
+ */
 export const RTE_LABELS_FR: Readonly<Record<RteLabelKey, string>> = {
   undo: 'Annuler',
   redo: 'Rétablir',
@@ -341,7 +469,12 @@ export const RTE_LABELS_FR: Readonly<Record<RteLabelKey, string>> = {
   source: 'Code HTML',
 };
 
-/** Commands that reflect a toggled state of the current selection (rendered with `aria-pressed`). */
+/**
+ * Commands whose button shows whether they apply to the selection (pressed look and
+ * `aria-pressed`), e.g. `bold` when the caret is in bold text.
+ *
+ * @since 0.1.0
+ */
 export const RTE_TOGGLE_COMMANDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
   'paragraph', 'h1', 'h2', 'h3', 'bold', 'italic', 'underline', 'strikeThrough', 'subscript',
   'superscript', 'unorderedList', 'orderedList', 'blockquote', 'code', 'alignLeft', 'alignCenter',
