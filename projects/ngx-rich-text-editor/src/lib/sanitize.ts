@@ -77,6 +77,8 @@ const GLOBAL_ATTRS = new Set(['title', 'dir', 'lang', 'style']);
 const TAG_ATTRS: Record<string, Set<string>> = {
   a: new Set(['href', 'target', 'rel']),
   img: new Set(['src', 'alt', 'width', 'height']),
+  // comment anchors (the comments themselves are kept apart, see RteComment)
+  span: new Set(['data-comment']),
   td: new Set(['colspan', 'rowspan']),
   th: new Set(['colspan', 'rowspan', 'scope']),
   col: new Set(['span']),

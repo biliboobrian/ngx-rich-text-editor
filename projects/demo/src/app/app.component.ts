@@ -1,13 +1,15 @@
-import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import {
   RTE_BACKGROUND_COLORS,
   RTE_LABELS_FR,
   RTE_TEXT_COLORS,
   RichTextEditorComponent,
+  RteComment,
   RteHideable,
   RteIconDirective,
   RteToolbarItem,
+  RteUser,
 } from '@biliboobrian/ngx-rich-text-editor';
 
 /** PNG data URL of a test image showing its own size (no network needed). */
@@ -142,6 +144,47 @@ function showcaseDocument(): string {
   ].join('');
 }
 
+/** Review threads of the comments example (several authors, replies, a resolved thread). */
+function demoComments([pierre, lea, karim]: RteUser[]): RteComment[] {
+  let n = 0;
+  const at = (day: number, hour: number, minute = 0) => new Date(Date.UTC(2026, 10, day, hour, minute)).toISOString();
+  const reply = (author: RteUser, date: string, text: string) => ({ id: `r${++n}`, author, date, text });
+  return [
+    {
+      id: 'c1', author: lea, date: at(2, 9, 15), text: 'Source du chiffre ?', resolved: false,
+      replies: [
+        reply(pierre, at(2, 10, 2), 'Tableau de bord finance, onglet T3.'),
+        reply(lea, at(2, 10, 30), 'Merci ! Peux-tu ajouter le lien en note de bas de page ?'),
+        reply(pierre, at(2, 11, 5), 'C’est fait.'),
+      ],
+    },
+    {
+      id: 'c2', author: karim, date: at(2, 14, 0), text: 'On avait 37 % au T2 : préciser la progression ?', resolved: false,
+      replies: [reply(lea, at(2, 15, 20), 'Oui, « contre 37 % au T2 » serait plus parlant.')],
+    },
+    { id: 'c3', author: lea, date: at(2, 16, 45), text: '« Légère » : +0,4 point, on peut le chiffrer.', resolved: true, replies: [] },
+    {
+      id: 'c4', author: karim, date: at(3, 8, 10),
+      text: 'Paragraphe à reformuler : le lien entre énergie et transport n’est pas clair pour le comité.',
+      resolved: false, replies: [],
+    },
+    {
+      id: 'c5', author: pierre, date: at(3, 8, 40), text: 'À confirmer avec la logistique : contrats signés ou en cours ?', resolved: false,
+      replies: [reply(karim, at(3, 9, 5), 'Deux signés sur trois, le dernier fin novembre.')],
+    },
+    { id: 'c6', author: lea, date: at(3, 11, 0), text: 'Doublée par rapport à quoi ? L’ancien site de Villeurbanne ?', resolved: false, replies: [] },
+    { id: 'c7', author: karim, date: at(3, 13, 30), text: 'Dont 4 en alternance.', resolved: true, replies: [reply(pierre, at(3, 13, 45), 'Ajouté.')] },
+    { id: 'c8', author: pierre, date: at(3, 15, 0), text: 'Valeur arrondie, la vraie est 134,20 €.', resolved: false, replies: [] },
+    {
+      id: 'c9', author: lea, date: at(3, 17, 20), text: 'Objectif validé par la direction ?', resolved: false,
+      replies: [
+        reply(pierre, at(3, 17, 50), 'Pas encore, réunion jeudi.'),
+        reply(karim, at(3, 18, 5), 'Je propose d’écrire « entre 12 et 15 % » en attendant.'),
+      ],
+    },
+  ];
+}
+
 @Component({
   selector: 'app-root',
   imports: [RichTextEditorComponent, RteIconDirective, ReactiveFormsModule],
@@ -208,6 +251,37 @@ function showcaseDocument(): string {
           <ng-template rteIcon="openLink"><span>↗</span></ng-template>
         </ngx-rich-text-editor>
       </section>
+
+      <section>
+        <h2>5. Commentaires</h2>
+        <p>
+          Sélectionnez du texte puis cliquez sur le bouton commentaire (ou <kbd>Ctrl+Alt+M</kbd>). Changez
+          d'utilisateur pour répondre comme un relecteur.
+        </p>
+        <p class="hide-options">
+          Utilisateur :
+          @for (user of users; track user.id) {
+            <label><input type="radio" name="user" [checked]="me() === user" (change)="me.set(user)" /> {{ user.name }}</label>
+          }
+          <label><input type="radio" name="user" [checked]="me() === null" (change)="me.set(null)" /> aucun (lecture seule)</label>
+        </p>
+        <ngx-rich-text-editor
+          [(value)]="reviewed"
+          [(comments)]="comments"
+          [(commentsPanel)]="commentsPanel"
+          [currentUser]="me()"
+          [labels]="fr"
+          minHeight="560px"
+        />
+        <details>
+          <summary>Commentaires (JSON, stockés à part du HTML)</summary>
+          <pre>{{ commentsJson() }}</pre>
+        </details>
+        <details>
+          <summary>HTML émis</summary>
+          <pre>{{ reviewed() }}</pre>
+        </details>
+      </section>
     </main>
   `,
   styles: `
@@ -267,6 +341,45 @@ export class AppComponent {
     'columnResize', 'cellSelection', 'linkOpen', 'tableToolbar',
   ];
   readonly hidden = signal<RteHideable[]>(['source', 'code']);
+
+  readonly users: RteUser[] = [
+    { id: 'u1', name: 'Pierre Hanauer' },
+    { id: 'u2', name: 'Léa Martin', color: '#c92a2a' },
+    { id: 'u3', name: 'Karim Benali', color: '#2b8a3e' },
+  ];
+  readonly me = signal<RteUser | null>(this.users[0]);
+  readonly reviewed = signal(
+    [
+      '<h1>Rapport trimestriel — T3 2026</h1>',
+      '<h2>1. Synthèse</h2>',
+      '<p>Le chiffre d’affaires a <span data-comment="c1">progressé de 12 %</span> sur le trimestre, porté par '
+        + 'les ventes en ligne qui représentent désormais <span data-comment="c2">41 % du total</span>. La marge '
+        + 'brute s’établit à 38,5 %, en <span data-comment="c3">légère amélioration</span> par rapport au T2.</p>',
+      '<p><span data-comment="c4">Les coûts logistiques restent stables malgré la hausse des prix de l’énergie, '
+        + 'grâce à la <span data-comment="c5">renégociation des contrats</span> de transport.</span></p>',
+      '<h2>2. Faits marquants</h2>',
+      '<ul>',
+      '<li>Ouverture de l’entrepôt de Lyon (<span data-comment="c6">capacité doublée</span>).</li>',
+      '<li>Lancement de l’application mobile : 85 000 téléchargements en six semaines.</li>',
+      '<li>Recrutement de <span data-comment="c7">14 personnes</span> au service client.</li>',
+      '</ul>',
+      '<h2>3. Chiffres clés</h2>',
+      '<table><tbody>',
+      '<tr><th>Indicateur</th><th>T2</th><th>T3</th><th>Évolution</th></tr>',
+      '<tr><td>Chiffre d’affaires</td><td>8,2 M€</td><td>9,2 M€</td><td>+12 %</td></tr>',
+      '<tr><td>Commandes</td><td>61 400</td><td>68 900</td><td>+12,2 %</td></tr>',
+      '<tr><td>Panier moyen</td><td>133 €</td><td><span data-comment="c8">134 €</span></td><td>+0,8 %</td></tr>',
+      '</tbody></table>',
+      '<h2>4. Perspectives</h2>',
+      '<p>Le quatrième trimestre devrait bénéficier des fêtes de fin d’année. Nous visons '
+        + '<span data-comment="c9">une croissance de 15 %</span>, avec un effort particulier sur la '
+        + 'fidélisation des clients existants.</p>',
+      '<blockquote>Prochaine revue : 15 janvier 2027.</blockquote>',
+    ].join(''),
+  );
+  readonly comments = signal<readonly RteComment[]>(demoComments(this.users));
+  readonly commentsPanel = signal(true);
+  readonly commentsJson = computed(() => JSON.stringify(this.comments(), null, 2));
 
   toggleHidden(option: RteHideable): void {
     this.hidden.update((list) => (list.includes(option) ? list.filter((o) => o !== option) : [...list, option]));

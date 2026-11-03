@@ -13,6 +13,7 @@
  * | Insert     | `link` (<kbd>Ctrl/⌘+K</kbd>), `unlink`, `image`, `table` |
  * | Tables     | `tableRowAbove`, `tableRowBelow`, `tableRowDelete`, `tableColLeft`, `tableColRight`, `tableColDelete`, `tableTextColor`, `tableBackground`, `tableBorder`, `tableDelete` |
  * | View       | `source` (HTML source view) |
+ * | Comments   | `comment` (<kbd>Ctrl/⌘+Alt+M</kbd>, comment the selection), `commentsPanel` (side panel) |
  *
  * @example
  * ```ts
@@ -102,7 +103,11 @@ export type RteCommand =
   | 'horizontalRule'
   /** Removes the inline formatting and turns the block into a paragraph. */
   | 'clear'
-  | 'source';
+  | 'source'
+  /** Comments the selected text (<kbd>Ctrl/⌘+Alt+M</kbd>); needs a `currentUser`. */
+  | 'comment'
+  /** Shows or hides the side panel listing the comments. */
+  | 'commentsPanel';
 
 /**
  * An entry of the `toolbar` / `tableToolbar` inputs: a command, or `'|'` for a visual separator.
@@ -172,6 +177,9 @@ export type RteHideable = RteCommand | RteFeature;
  * - `scopeSelection`, `scopeCell`, `scopeRow`, `scopeColumn`: scope buttons of the cell palettes;
  * - `borderSides`, `borderWidth`, `borderColor`, `borderAll`, `borderTop`, `borderBottom`,
  *   `borderLeft`, `borderRight`, `borderInner`: texts of the borders popup.
+ * - `commentPlaceholder`, `replyPlaceholder`, `commentSubmit`, `commentReply`, `commentCancel`,
+ *   `commentResolve`, `commentReopen`, `commentDelete`, `commentResolved`, `commentTextDeleted`,
+ *   `commentsTitle`, `commentsEmpty`, `commentsShowResolved`: comment bubble and panel.
  *
  * @example
  * ```ts
@@ -216,7 +224,33 @@ export type RteLabelKey =
   | 'borderRight'
   /** Borders popup: lines between the cells. */
   | 'borderInner'
-  | 'colorAuto';
+  | 'colorAuto'
+  /** Placeholder of the new comment field. */
+  | 'commentPlaceholder'
+  /** Placeholder of the reply field. */
+  | 'replyPlaceholder'
+  /** Button posting a new comment. */
+  | 'commentSubmit'
+  /** Button posting a reply. */
+  | 'commentReply'
+  /** Button cancelling a new comment. */
+  | 'commentCancel'
+  /** Button resolving a thread. */
+  | 'commentResolve'
+  /** Button reopening a resolved thread. */
+  | 'commentReopen'
+  /** Button deleting a comment or a reply. */
+  | 'commentDelete'
+  /** Badge of a resolved thread. */
+  | 'commentResolved'
+  /** Shown instead of the quote when the commented text was deleted. */
+  | 'commentTextDeleted'
+  /** Title of the comments panel. */
+  | 'commentsTitle'
+  /** Shown in the panel when there are no comments. */
+  | 'commentsEmpty'
+  /** Panel option showing the resolved threads. */
+  | 'commentsShowResolved';
 
 /**
  * Default swatches of the text color palettes and of the borders popup: 12 colors, from black to
@@ -393,6 +427,21 @@ export const RTE_DEFAULT_LABELS: Readonly<Record<RteLabelKey, string>> = {
   horizontalRule: 'Horizontal line',
   clear: 'Clear formatting',
   source: 'HTML source',
+  comment: 'Comment (Ctrl+Alt+M)',
+  commentsPanel: 'Comments',
+  commentPlaceholder: 'Add a comment…',
+  replyPlaceholder: 'Reply…',
+  commentSubmit: 'Comment',
+  commentReply: 'Reply',
+  commentCancel: 'Cancel',
+  commentResolve: 'Resolve',
+  commentReopen: 'Reopen',
+  commentDelete: 'Delete',
+  commentResolved: 'Resolved',
+  commentTextDeleted: 'Text deleted',
+  commentsTitle: 'Comments',
+  commentsEmpty: 'No comments yet. Select some text and click the comment button.',
+  commentsShowResolved: 'Show resolved',
 };
 
 /**
@@ -467,6 +516,21 @@ export const RTE_LABELS_FR: Readonly<Record<RteLabelKey, string>> = {
   horizontalRule: 'Ligne horizontale',
   clear: 'Effacer la mise en forme',
   source: 'Code HTML',
+  comment: 'Commenter (Ctrl+Alt+M)',
+  commentsPanel: 'Commentaires',
+  commentPlaceholder: 'Ajouter un commentaire…',
+  replyPlaceholder: 'Répondre…',
+  commentSubmit: 'Commenter',
+  commentReply: 'Répondre',
+  commentCancel: 'Annuler',
+  commentResolve: 'Résoudre',
+  commentReopen: 'Rouvrir',
+  commentDelete: 'Supprimer',
+  commentResolved: 'Résolu',
+  commentTextDeleted: 'Texte supprimé',
+  commentsTitle: 'Commentaires',
+  commentsEmpty: 'Aucun commentaire. Sélectionnez du texte puis cliquez sur le bouton commentaire.',
+  commentsShowResolved: 'Afficher les résolus',
 };
 
 /**
@@ -478,5 +542,5 @@ export const RTE_LABELS_FR: Readonly<Record<RteLabelKey, string>> = {
 export const RTE_TOGGLE_COMMANDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
   'paragraph', 'h1', 'h2', 'h3', 'bold', 'italic', 'underline', 'strikeThrough', 'subscript',
   'superscript', 'unorderedList', 'orderedList', 'blockquote', 'code', 'alignLeft', 'alignCenter',
-  'alignRight', 'alignJustify', 'link', 'source',
+  'alignRight', 'alignJustify', 'link', 'source', 'commentsPanel',
 ]);

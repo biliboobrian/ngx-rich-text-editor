@@ -47,6 +47,12 @@ Lightweight **rich text editor for Angular** that takes **HTML as input** and em
 - Cell text and background colors on the cell, row, column or selection
 - Borders: sides (top, bottom, left, right, inside), width and color
 
+**Comments**
+- Comment any part of the text (<kbd>Ctrl/⌘ + Alt + M</kbd>), with the author and the date
+- Threads of replies, resolve / reopen, delete your own comments and replies
+- Bubble on the commented text, optional side panel listing every thread
+- Comments stored apart from the HTML (`[(comments)]`), only `<span data-comment>` anchors in the HTML
+
 **Editor**
 - HTML source view
 - Sanitizer with configurable allow-list (`sanitizeOptions`), optional plain-text paste
@@ -140,6 +146,9 @@ update it and mark it dirty, blur marks it touched. Use it instead of `[formCont
 | `maxHeight`       | `string \| null`                      | `null`                | Max height before scrolling. |
 | `ariaLabel`       | `string`                              | `'Rich text editor'`  | Accessible label. |
 | `control`         | `AbstractControl \| null`             | `null`                | Form control bound directly (value, disabled, dirty, touched). |
+| `comments`        | `RteComment[]` (model)                | `[]`                  | Comments and their threads. Supports `[(comments)]`. |
+| `currentUser`     | `RteUser \| null`                     | `null`                | Author of new comments and replies (comments are read-only without it). |
+| `commentsPanel`   | `boolean` (model)                     | `false`               | Side panel listing the comments. Supports `[(commentsPanel)]`. |
 
 ## Outputs
 
@@ -148,6 +157,8 @@ update it and mark it dirty, blur marks it touched. Use it instead of `[formCont
 | `valueChange` | `string` | New HTML on every change. |
 | `editorFocus` | `void`   | Editable area focused. |
 | `editorBlur`  | `void`   | Editable area blurred. |
+| `commentsChange` | `RteComment[]` | Comments added, answered, resolved or deleted. |
+| `commentsPanelChange` | `boolean` | Panel opened / closed with its button. |
 
 ## Toolbar commands
 
@@ -156,7 +167,8 @@ update it and mark it dirty, blur marks it touched. Use it instead of `[formCont
 `superscript` `unorderedList` `orderedList` `indent` `outdent` `blockquote` `code` `alignLeft`
 `alignCenter` `alignRight` `alignJustify` `link` `unlink` `image` `table` `horizontalRule` `clear`
 `source`, and the table commands `tableRowAbove` `tableRowBelow` `tableColLeft` `tableColRight`
-`tableRowDelete` `tableColDelete` `tableTextColor` `tableBackground` `tableBorder` `tableDelete`.
+`tableRowDelete` `tableColDelete` `tableTextColor` `tableBackground` `tableBorder` `tableDelete`, and
+the comment commands `comment` `commentsPanel`.
 
 ```ts
 toolbar: RteToolbarItem[] = ['bold', 'italic', '|', 'unorderedList', 'orderedList', '|', 'link', 'source'];
@@ -233,9 +245,48 @@ this.editor().focus();
 this.editor().insertHtml('<p>Inserted at caret</p>');
 this.editor().execute('bold');
 this.editor().getHtml();
+
+// comments
+this.editor().addComment('To be checked');         // on the selected text
+this.editor().replyToComment(id, 'Done');
+this.editor().resolveComment(id);                  // resolveComment(id, false) reopens
+this.editor().deleteComment(id);
+this.editor().deleteReply(id, replyId);
+this.editor().selectComment(id);                   // opens its thread
 ```
 
 The sanitizer is also exported: `sanitizeHtml(html, document, options?)`.
+
+## Comments
+
+Select some text and click the comment button (or <kbd>Ctrl/⌘ + Alt + M</kbd>): the comment is
+attached to that text, with its author and date. Clicking (or moving the caret into) a commented
+passage opens its thread in a bubble: replies, resolve / reopen, delete. The side panel
+(`commentsPanel` button or input) lists every thread in document order; with the panel open,
+threads open in their card.
+
+```ts
+comments = signal<RteComment[]>([]);
+me: RteUser = { id: 'u42', name: 'Pierre Hanauer', color: '#3b6cf6' };
+```
+
+```html
+<ngx-rich-text-editor [(value)]="html" [(comments)]="comments" [currentUser]="me" />
+```
+
+- **Storage**: the HTML only gets anchors, `<span data-comment="{id}">commented text</span>`; the
+  comments live in the `comments` array (`RteComment`: `id`, `author`, `date`, `text`,
+  `resolved`, `replies`). Store both; publish the HTML without the comments (the anchors render
+  as plain text).
+- **Users**: `currentUser` writes the comments and replies; without it comments are read-only.
+  Users may delete their own comments and replies. Setting `currentUser` adds the `comment` and
+  `commentsPanel` buttons to the toolbar.
+- **Undo**: marking text is one undo step. If the commented text is undone or deleted, the comment
+  stays in the data and the panel shows it as "text deleted".
+- **Highlighting** uses the CSS Custom Highlight API, so the open / resolved / active states never
+  touch the HTML (older browsers highlight every anchor with plain CSS). Colors:
+  `--nrte-comment-bg`, `--nrte-comment-active-bg`; panel: `--nrte-panel-width`, `--nrte-panel-bg`.
+- `hide: ['comment']` turns comments off entirely; `hide: ['commentsPanel']` removes the panel button.
 
 ## Customizing the toolbar
 
@@ -318,6 +369,12 @@ ngx-rich-text-editor {
   --nrte-icon-size: 18px;
   --nrte-icon-stroke: 2;              /* line width of the built-in icons */
   --nrte-sep-color: #ccc;
+
+  /* comments */
+  --nrte-comment-bg: rgba(255, 196, 0, 0.3);
+  --nrte-comment-active-bg: rgba(255, 196, 0, 0.65);
+  --nrte-panel-width: 280px;
+  --nrte-panel-bg: #fafafa;
 }
 ```
 

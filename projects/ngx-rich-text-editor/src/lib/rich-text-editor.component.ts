@@ -36,6 +36,7 @@ import {
   RteToolbarItem,
 } from './toolbar';
 import { RteIconContext, RteIconDirective } from './icon.directive';
+import { RteComment, RteCommentReply, RteUser, commentId, userColor } from './comments';
 
 const BLOCK_COMMANDS: Partial<Record<RteCommand, string>> = {
   paragraph: 'p',
@@ -183,6 +184,9 @@ const BORDER_WIDTHS = [0, 1, 2, 3];
 /** Narrowest width a column can be dragged to (px). */
 const MIN_COL_WIDTH = 30;
 
+/** Width of the comment bubble (px). */
+const COMMENT_BUBBLE_WIDTH = 300;
+
 /** Size of the "open link" button (px). */
 const LINK_BUBBLE_SIZE = 20;
 
@@ -310,6 +314,45 @@ function imageFiles(list: FileList | null | undefined): File[] {
   return Array.from(list ?? []).filter((file) => file.type.startsWith('image/'));
 }
 
+/** Names of the CSS highlights of the comments (`::highlight(nrte-comment)`). */
+const COMMENT_HIGHLIGHT = 'nrte-comment';
+const COMMENT_HIGHLIGHT_ACTIVE = 'nrte-comment-active';
+
+/** The parts of the CSS Custom Highlight API used here (not in every TypeScript `lib`). */
+interface HighlightLike {
+  add(range: Range): unknown;
+  delete(range: Range): boolean;
+}
+interface HighlightApi {
+  CSS?: { highlights?: { get(name: string): HighlightLike | undefined; set(name: string, highlight: HighlightLike): unknown } };
+  Highlight?: new () => HighlightLike;
+}
+
+/** The browser supports the CSS Custom Highlight API. */
+function hasHighlightApi(): boolean {
+  const api = globalThis as unknown as HighlightApi;
+  return !!api.CSS?.highlights && typeof api.Highlight === 'function';
+}
+
+/** Shared highlight of the page (the registry is global: every editor adds its own ranges). */
+function sharedHighlight(name: string): HighlightLike | null {
+  const api = globalThis as unknown as HighlightApi;
+  if (!hasHighlightApi()) return null;
+  let highlight = api.CSS!.highlights!.get(name);
+  if (!highlight) {
+    highlight = new api.Highlight!();
+    api.CSS!.highlights!.set(name, highlight);
+  }
+  return highlight;
+}
+
+/** Selector of the marks of a comment. */
+function commentSelector(id: string): string {
+  return `span[data-comment="${CSS.escape(id)}"]`;
+}
+
+const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' });
+
 /** Ctrl (Windows / Linux) or Option (macOS) held while dropping: copy instead of move. */
 function isCopyDrop(event: DragEvent): boolean {
   return event.ctrlKey || event.altKey;
@@ -335,6 +378,9 @@ function escapeHtml(text: string): string {
  * off commands and features, {@link RteIconDirective | rteIcon} templates replace icons, CSS
  * variables (`--nrte-accent`, `--nrte-btn-size`, `--nrte-icon-size`…) set the theme, and
  * {@link labels} translates the texts ({@link RTE_LABELS_FR} included).
+ *
+ * **Comments** — {@link comments | [(comments)]} and {@link currentUser} let users comment parts of
+ * the text, answer in threads and resolve them; the comments are stored apart from the HTML.
  *
  * @example
  * ```html
@@ -679,6 +725,57 @@ export class RichTextEditorComponent implements ControlValueAccessor {
    * @since 0.4.0
    */
   readonly control = input<AbstractControl<string | null | undefined> | null>(null);
+  /**
+   * Comments on parts of the text, with their threads of replies (signal `model`). Supports
+   * two-way binding: `[(comments)]="comments"`.
+   *
+   * The commented text is marked in the HTML with `<span data-comment="{id}">`; the comments
+   * themselves only live in this array, so store it next to the HTML (and publish the HTML
+   * without them). Comments whose text was deleted stay here: the panel shows them as
+   * "text deleted".
+   *
+   * Adding, replying, resolving and deleting update this array; you can also change it from your
+   * code (e.g. comments loaded from a server or added by other users).
+   *
+   * @default []
+   * @example
+   * ```html
+   * <ngx-rich-text-editor [(value)]="html" [(comments)]="comments" [currentUser]="me" />
+   * ```
+   * @see {@link RteComment}
+   * @see {@link currentUser} — needed to comment
+   * @since 0.5.0
+   */
+  readonly comments = model<readonly RteComment[]>([]);
+  /**
+   * User writing the comments and replies. Comments are read-only without it (no new comment,
+   * reply, resolve or delete). When set, the `comment` and `commentsPanel` buttons are added at the
+   * end of the main toolbar (unless the `toolbar` already has them or they are hidden).
+   *
+   * Users may delete their own comments and replies.
+   *
+   * @default null
+   * @example
+   * ```html
+   * <ngx-rich-text-editor [(comments)]="comments" [currentUser]="{ id: user.id, name: user.name }" />
+   * ```
+   * @see {@link RteUser}
+   * @since 0.5.0
+   */
+  readonly currentUser = input<RteUser | null>(null);
+  /**
+   * Shows the side panel listing the comments in document order (signal `model`, also toggled by
+   * the `commentsPanel` button). With the panel open, the thread of the comment under the caret
+   * opens in its card instead of a bubble.
+   *
+   * @default false
+   * @example
+   * ```html
+   * <ngx-rich-text-editor [(comments)]="comments" [currentUser]="me" [(commentsPanel)]="showComments" />
+   * ```
+   * @since 0.5.0
+   */
+  readonly commentsPanel = model(false);
 
   /**
    * Emitted when the editable area gains focus.
@@ -749,6 +846,47 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   protected readonly linkBubble = signal<{ href: string; top: number; left: number } | null>(null);
   /** Pointer over a link with Ctrl / ⌘ held. */
   protected readonly linkHover = signal(false);
+  /** Comment whose thread is open (bubble or panel card); its text gets the active highlight. */
+  protected readonly activeComment = signal<string | null>(null);
+  /** The new comment form is open (for `pendingRange`). */
+  protected readonly newComment = signal(false);
+  /** Position of the comment bubble (new comment form, or thread of `activeComment`). */
+  protected readonly commentBubble = signal<{ top: number; left: number; id: string | null } | null>(null);
+  /** The panel also lists the resolved threads. */
+  protected readonly showResolved = signal(false);
+  /** Changes whenever the editable content is rewritten (the comment marks may have moved). */
+  private readonly contentVersion = signal(0);
+  /** Text the new comment will mark. */
+  private pendingRange: Range | null = null;
+  /** Ranges this editor added to the shared comment highlights. */
+  private highlightRanges: Record<string, Range[]> = { [COMMENT_HIGHLIGHT]: [], [COMMENT_HIGHLIGHT_ACTIVE]: [] };
+  /** Without the CSS Custom Highlight API, every comment mark is highlighted with plain CSS. */
+  protected readonly highlightApi = hasHighlightApi();
+  /** Comments are on (not turned off with `hide: ['comment']`). */
+  protected readonly commentsEnabled = computed(() => !this.hidden().has('comment'));
+  /** The current user can add, answer, resolve and delete comments. */
+  protected readonly canComment = computed(
+    () => this.commentsEnabled() && !!this.currentUser() && !this.isDisabled() && !this.sourceMode(),
+  );
+  /** Threads listed in the panel, in document order (comments without text last). */
+  protected readonly panelThreads = computed(() => {
+    this.contentVersion();
+    const spans = this.isBrowser
+      ? Array.from(this.editable().nativeElement.querySelectorAll<HTMLElement>('span[data-comment]'))
+      : [];
+    const order = new Map<string, number>();
+    const quotes = new Map<string, string>();
+    spans.forEach((span, index) => {
+      const id = span.dataset['comment']!;
+      if (!order.has(id)) order.set(id, index);
+      quotes.set(id, (quotes.get(id) ?? '') + (span.textContent ?? ''));
+    });
+    return this.comments()
+      .filter((comment) => this.showResolved() || !comment.resolved)
+      .map((comment) => ({ comment, quote: quotes.get(comment.id)?.trim() || null, order: order.get(comment.id) ?? Infinity }))
+      .sort((a, b) => a.order - b.order);
+  });
+  protected readonly openComments = computed(() => this.comments().filter((c) => !c.resolved).length);
   /** Vertical guide shown while a column border is dragged. */
   protected readonly colGuide = signal<{ left: number; top: number; height: number } | null>(null);
   /** Image selected by a click, shown with resize handles. */
@@ -760,7 +898,16 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   /** Commands and features turned off by the `hide` input. */
   private readonly hidden = computed(() => new Set<RteHideable>(this.hide()));
   /** Main toolbar without the hidden commands. */
-  protected readonly mainItems = computed(() => this.visibleItems(this.toolbar()));
+  protected readonly mainItems = computed(() => {
+    const items = [...this.toolbar()];
+    // comment buttons come with a current user (or with comments to read)
+    if (this.commentsEnabled() && (this.currentUser() || this.comments().length)) {
+      const extra = (this.currentUser() ? (['comment', 'commentsPanel'] as const) : (['commentsPanel'] as const))
+        .filter((command) => !items.includes(command));
+      if (extra.length) items.push('|', ...extra);
+    }
+    return this.visibleItems(items);
+  });
   /** Table bar without the hidden commands (empty when the bar is hidden). */
   protected readonly tableItems = computed(() =>
     this.hidden().has('tableToolbar') ? [] : this.visibleItems(this.tableToolbar()),
@@ -818,6 +965,25 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       el.innerHTML = this.clean(html);
       this.selectedImage.set(null);
       this.imageFrame.set(null);
+      this.cancelComment();
+      this.contentVersion.update((v) => v + 1);
+    });
+
+    // Comment highlights follow the content, the comments and the open thread.
+    effect(() => {
+      this.contentVersion();
+      this.comments();
+      this.activeComment();
+      this.commentsEnabled();
+      if (this.isBrowser) this.updateCommentHighlights();
+    });
+    // The bubble follows the open thread / new comment and the panel.
+    effect(() => {
+      this.activeComment();
+      this.newComment();
+      this.commentsPanel();
+      this.contentVersion();
+      if (this.isBrowser) this.updateCommentBubble();
     });
 
     afterNextRender(() => {
@@ -836,12 +1002,17 @@ export class RichTextEditorComponent implements ControlValueAccessor {
         const target = event.target as Element;
         const inside = this.root().nativeElement.contains(target) && target.closest('.nrte__palette, .nrte__btn--color');
         if (!inside) this.palette.set(null);
-        if (!this.root().nativeElement.contains(target)) this.clearCellSelection();
+        if (!this.root().nativeElement.contains(target)) {
+          this.clearCellSelection();
+          this.closeComments();
+        }
       };
       this.doc.addEventListener('mousedown', onMouseDown);
       this.destroyRef.onDestroy(() => {
         this.doc.removeEventListener('selectionchange', onSelectionChange);
         this.doc.removeEventListener('mousedown', onMouseDown);
+        this.setHighlightRanges(COMMENT_HIGHLIGHT, []);
+        this.setHighlightRanges(COMMENT_HIGHLIGHT_ACTIVE, []);
       });
     });
   }
@@ -1029,6 +1200,14 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       return;
     }
     if (this.sourceMode()) return;
+    if (command === 'comment') {
+      this.startComment();
+      return;
+    }
+    if (command === 'commentsPanel') {
+      this.commentsPanel.update((open) => !open);
+      return;
+    }
     if (COLOR_KINDS.has(command) || command === 'tableBorder') {
       this.togglePalette(command as RteColorKind | 'tableBorder');
       return;
@@ -1067,6 +1246,103 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     }
     this.syncFromEditor();
     this.updateActiveStates();
+  }
+
+  /**
+   * Comments the selected text, as the `comment` button does once the text is typed: marks the
+   * selection and adds the comment to {@link comments}. Needs a {@link currentUser}, an editable
+   * editor and a non-empty selection in it. Marking the text can be undone.
+   *
+   * @param text - plain text of the comment
+   * @returns the new comment, or `null` when nothing could be commented
+   * @example
+   * ```ts
+   * const comment = this.editor().addComment('To be checked');
+   * ```
+   * @since 0.5.0
+   */
+  addComment(text: string): RteComment | null {
+    if (!this.canComment() || !text.trim()) return null;
+    this.restoreSelection();
+    const sel = this.doc.getSelection();
+    if (!sel?.rangeCount || sel.isCollapsed) return null;
+    return this.createComment(sel.getRangeAt(0).cloneRange(), text);
+  }
+
+  /**
+   * Adds a reply to the thread of a comment, written by {@link currentUser}.
+   *
+   * @param id - the comment to answer
+   * @param text - plain text of the reply
+   * @returns the reply, or `null` (no current user, read-only, unknown comment or empty text)
+   * @since 0.5.0
+   */
+  replyToComment(id: string, text: string): RteCommentReply | null {
+    const user = this.currentUser();
+    if (!this.canComment() || !user || !text.trim() || !this.comments().some((c) => c.id === id)) return null;
+    const reply: RteCommentReply = { id: commentId(), author: { ...user }, date: new Date().toISOString(), text: text.trim() };
+    this.comments.update((list) => list.map((c) => (c.id === id ? { ...c, replies: [...c.replies, reply] } : c)));
+    return reply;
+  }
+
+  /**
+   * Resolves a thread (its text is no longer highlighted) or reopens it.
+   *
+   * @param id - the comment
+   * @param resolved - `true` to resolve, `false` to reopen
+   * @since 0.5.0
+   */
+  resolveComment(id: string, resolved = true): void {
+    if (!this.canComment()) return;
+    this.comments.update((list) => list.map((c) => (c.id === id ? { ...c, resolved } : c)));
+    if (resolved && this.activeComment() === id && !this.commentsPanel()) this.activeComment.set(null);
+  }
+
+  /**
+   * Deletes a comment and its replies, and removes its marks from the text (the text itself is
+   * kept). Removing the marks can be undone; the comment can't.
+   *
+   * @param id - the comment
+   * @since 0.5.0
+   */
+  deleteComment(id: string): void {
+    if (!this.canComment()) return;
+    const spans = Array.from(this.editable().nativeElement.querySelectorAll(commentSelector(id)));
+    if (spans.length) {
+      this.rewriteBlocks(this.topBlock(spans[0]), this.topBlock(spans[spans.length - 1]), (_, wrapper) => {
+        for (const span of Array.from(wrapper.querySelectorAll(commentSelector(id)))) span.replaceWith(...Array.from(span.childNodes));
+      });
+      this.syncFromEditor();
+    }
+    if (this.activeComment() === id) this.activeComment.set(null);
+    this.comments.update((list) => list.filter((c) => c.id !== id));
+  }
+
+  /**
+   * Deletes a reply of a thread.
+   *
+   * @param id - the comment
+   * @param replyId - the reply to delete
+   * @since 0.5.0
+   */
+  deleteReply(id: string, replyId: string): void {
+    if (!this.canComment()) return;
+    this.comments.update((list) =>
+      list.map((c) => (c.id === id ? { ...c, replies: c.replies.filter((r) => r.id !== replyId) } : c)),
+    );
+  }
+
+  /**
+   * Opens the thread of a comment (bubble, or its card when the panel is open) and scrolls its
+   * text into view.
+   *
+   * @param id - the comment, `null` to close the open thread
+   * @since 0.5.0
+   */
+  selectComment(id: string | null): void {
+    this.newComment.set(false);
+    this.activeComment.set(id);
+    if (id) this.editable().nativeElement.querySelector(commentSelector(id))?.scrollIntoView({ block: 'nearest' });
   }
 
   // ------------------------------------------------- ControlValueAccessor
@@ -1138,6 +1414,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   protected isActive(item: RteToolbarItem): boolean {
     if (item === '|') return false;
     if (item === 'source') return this.sourceMode();
+    if (item === 'commentsPanel') return this.commentsPanel();
     return !!this.active()[item];
   }
 
@@ -1243,6 +1520,16 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   protected onKeydown(event: KeyboardEvent): void {
+    if ((event.ctrlKey || event.metaKey) && event.altKey && event.code === 'KeyM') {
+      event.preventDefault();
+      void this.execute('comment');
+      return;
+    }
+    if (event.key === 'Escape' && (this.newComment() || (this.activeComment() && !this.commentsPanel()))) {
+      this.closeComments();
+      return;
+    }
+    if (this.newComment()) this.cancelComment();
     if ((event.ctrlKey || event.metaKey) && !event.altKey) {
       const command = ({ b: 'bold', i: 'italic', u: 'underline', k: 'link' } as Record<string, RteCommand>)[event.key.toLowerCase()];
       if (command && this.isHidden(command)) {
@@ -1671,6 +1958,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
    * Dragging across cells (or Shift+click) selects a rectangle of cells.
    */
   protected onContentMouseDown(event: MouseEvent): void {
+    if (this.newComment()) this.cancelComment();
     if (event.button !== 0) return;
     const target = this.resizeTarget(event);
     if (!target) {
@@ -1893,6 +2181,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     this.lastHtml = html;
     this.value.set(html);
     this.emitChange(html);
+    this.contentVersion.update((v) => v + 1);
   }
 
   /** Reports an edit to the forms API and to the `control` input. */
@@ -1910,6 +2199,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       this.sourceMode.set(false);
       // load the source now (the value effect may not have run yet), then emit its sanitized version
       this.editable().nativeElement.innerHTML = this.clean(this.value() ?? '');
+      this.contentVersion.update((v) => v + 1);
       this.lastHtml = null;
       this.syncFromEditor();
       setTimeout(() => this.focus());
@@ -1931,12 +2221,279 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     this.doc.execCommand(command, false, arg);
   }
 
+  // --------------------------------------------------------------- comments
+
+  /** Innermost open (not resolved) comment marking `node`, if any. */
+  private commentAt(node: Node | null): string | null {
+    if (!this.commentsEnabled()) return null;
+    const open = new Set(this.comments().filter((c) => !c.resolved).map((c) => c.id));
+    const el = this.editable().nativeElement;
+    for (let n = node; n && n !== el; n = n.parentNode) {
+      const id = n.nodeType === 1 ? (n as HTMLElement).dataset?.['comment'] : undefined;
+      if (id && open.has(id)) return id;
+    }
+    return null;
+  }
+
+  /** `comment` button: opens the new comment form for the selected text. */
+  private startComment(): void {
+    if (!this.canComment()) return;
+    this.restoreSelection();
+    const sel = this.doc.getSelection();
+    if (!sel?.rangeCount || sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    if (!this.editable().nativeElement.contains(range.commonAncestorContainer)) return;
+    this.pendingRange = range.cloneRange();
+    this.activeComment.set(null);
+    this.newComment.set(true);
+    this.updateCommentBubble();
+    setTimeout(() => this.root().nativeElement.querySelector<HTMLTextAreaElement>('.nrte__comment-bubble textarea')?.focus());
+  }
+
+  protected submitComment(field: HTMLTextAreaElement): void {
+    const range = this.pendingRange;
+    if (!range || !field.value.trim()) return;
+    this.cancelComment();
+    const comment = this.createComment(range, field.value);
+    if (comment) this.activeComment.set(comment.id);
+  }
+
+  /** Marks `range` and adds a comment on it. */
+  private createComment(range: Range, text: string): RteComment | null {
+    const user = this.currentUser();
+    if (!user) return null;
+    const id = commentId();
+    if (!this.markRange(range, id)) return null;
+    const comment: RteComment = {
+      id,
+      author: { ...user },
+      date: new Date().toISOString(),
+      text: text.trim(),
+      resolved: false,
+      replies: [],
+    };
+    this.comments.update((list) => [...list, comment]);
+    // caret at the end of the commented text: its thread opens
+    const marks = this.editable().nativeElement.querySelectorAll(commentSelector(id));
+    const last = marks[marks.length - 1];
+    if (last) {
+      const caret = this.doc.createRange();
+      caret.selectNodeContents(last);
+      caret.collapse(false);
+      this.doc.getSelection()?.removeAllRanges();
+      this.doc.getSelection()?.addRange(caret);
+    }
+    this.syncFromEditor();
+    return comment;
+  }
+
+  /** Wraps the text of `range` in `<span data-comment="id">` (one span per text node), in one undo step. */
+  private markRange(range: Range, id: string): boolean {
+    const el = this.editable().nativeElement;
+    if (!el.contains(range.commonAncestorContainer) && range.commonAncestorContainer !== el) return false;
+    const first = range.startContainer === el ? el.childNodes[range.startOffset] : this.topBlock(range.startContainer);
+    const last = range.endContainer === el ? el.childNodes[range.endOffset - 1] : this.topBlock(range.endContainer);
+    if (!first || !last) return false;
+    let marked = false;
+    this.rewriteBlocks(first, last, (point, wrapper) => {
+      const copy = this.doc.createRange();
+      copy.setStart(...point(range.startContainer, range.startOffset));
+      copy.setEnd(...point(range.endContainer, range.endOffset));
+      const texts: Text[] = [];
+      const walker = this.doc.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) if (copy.intersectsNode(n)) texts.push(n as Text);
+      for (let text of texts) {
+        const start = text === copy.startContainer ? copy.startOffset : 0;
+        const end = text === copy.endContainer ? copy.endOffset : text.length;
+        const structural = text.parentNode === wrapper || /^(TABLE|THEAD|TBODY|TFOOT|TR|UL|OL|COLGROUP)$/.test(text.parentNode!.nodeName);
+        if (start >= end || (structural && !text.data.slice(start, end).trim())) continue;
+        if (end < text.length) text.splitText(end);
+        if (start > 0) text = text.splitText(start);
+        const mark = this.doc.createElement('span');
+        mark.setAttribute('data-comment', id);
+        text.before(mark);
+        mark.append(text);
+        marked = true;
+      }
+      return marked;
+    });
+    return marked;
+  }
+
+  /** Top-level block of the editor holding `node`. */
+  private topBlock(node: Node): ChildNode {
+    const el = this.editable().nativeElement;
+    let n = node;
+    while (n.parentNode && n.parentNode !== el) n = n.parentNode;
+    return n as ChildNode;
+  }
+
+  /**
+   * Rewrites the top-level blocks from `first` to `last` with one `insertHTML` (one undo step):
+   * `mutate` changes copies of the blocks, found through `point` (maps a boundary point of the
+   * editor to the copies) or in `wrapper`; returning `false` cancels.
+   */
+  private rewriteBlocks(
+    first: ChildNode,
+    last: ChildNode,
+    mutate: (point: (container: Node, offset: number) => [Node, number], wrapper: HTMLElement) => boolean | void,
+  ): void {
+    const el = this.editable().nativeElement;
+    const children = Array.from(el.childNodes);
+    const from = children.indexOf(first);
+    const to = children.indexOf(last);
+    if (from < 0 || to < from) return;
+    const blocks = children.slice(from, to + 1);
+    const wrapper = this.doc.createElement('div');
+    wrapper.append(...blocks.map((block) => block.cloneNode(true)));
+    const at = (node: Node): Node => {
+      const top = this.topBlock(node);
+      return resolvePath(wrapper, [blocks.indexOf(top), ...pathOf(node, top)]);
+    };
+    const point = (container: Node, offset: number): [Node, number] =>
+      container === el ? [wrapper, offset - from] : [at(container), offset];
+    if (mutate(point, wrapper) === false) return;
+
+    el.focus();
+    const replaced = this.doc.createRange();
+    replaced.setStartBefore(blocks[0]);
+    const end = blocks[blocks.length - 1];
+    // end inside the last block (see replaceNode)
+    if (end.nodeType === Node.TEXT_NODE) replaced.setEnd(end, (end as Text).length);
+    else if (!end.childNodes.length) replaced.setEndAfter(end);
+    else replaced.setEnd(end, end.childNodes.length);
+    const sel = this.doc.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(replaced);
+    const html = Array.from(wrapper.childNodes, (n) => (n.nodeType === 1 ? (n as Element).outerHTML : escapeHtml(n.textContent ?? ''))).join('');
+    this.doc.execCommand('insertHTML', false, html);
+  }
+
+  protected cancelComment(): void {
+    this.pendingRange = null;
+    this.newComment.set(false);
+  }
+
+  /** Closes the new comment form and the open thread. */
+  protected closeComments(): void {
+    this.cancelComment();
+    if (!this.commentsPanel()) this.activeComment.set(null);
+  }
+
+  protected submitReply(id: string, field: HTMLTextAreaElement): void {
+    if (this.replyToComment(id, field.value)) field.value = '';
+  }
+
+  /** Ctrl/⌘ + Enter posts, Escape closes. */
+  protected onCommentKeydown(event: KeyboardEvent, field: HTMLTextAreaElement, id: string | null): void {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      if (id) this.submitReply(id, field);
+      else this.submitComment(field);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      this.closeComments();
+      this.editable().nativeElement.focus();
+    }
+  }
+
+  protected commentById(id: string | null): RteComment | undefined {
+    return id === null ? undefined : this.comments().find((c) => c.id === id);
+  }
+
+  /** The comment followed by its replies. */
+  protected threadEntries(comment: RteComment): (RteComment | RteCommentReply)[] {
+    return [comment, ...comment.replies];
+  }
+
+  protected canDelete(entry: { author: RteUser }): boolean {
+    return this.canComment() && this.currentUser()?.id === entry.author.id;
+  }
+
+  protected deleteEntry(comment: RteComment, entry: RteComment | RteCommentReply): void {
+    if (entry.id === comment.id) this.deleteComment(comment.id);
+    else this.deleteReply(comment.id, entry.id);
+  }
+
+  protected colorOf(user: RteUser): string {
+    return userColor(user);
+  }
+
+  protected initials(user: RteUser): string {
+    const words = user.name.trim().split(/\s+/).filter(Boolean);
+    return (words.length > 1 ? words[0][0] + words[words.length - 1][0] : (words[0] ?? '?').slice(0, 2)).toUpperCase();
+  }
+
+  protected formatDate(iso: string): string {
+    const date = new Date(iso);
+    return isNaN(date.getTime()) ? iso : DATE_FORMAT.format(date);
+  }
+
+  /** Highlights the text of the open comments, and more strongly the one of the open thread. */
+  private updateCommentHighlights(): void {
+    const normal: Range[] = [];
+    const active: Range[] = [];
+    if (this.commentsEnabled()) {
+      const open = new Set(this.comments().filter((c) => !c.resolved).map((c) => c.id));
+      const current = this.activeComment();
+      for (const span of Array.from(this.editable().nativeElement.querySelectorAll<HTMLElement>('span[data-comment]'))) {
+        const id = span.dataset['comment']!;
+        if (!open.has(id)) continue;
+        const range = this.doc.createRange();
+        range.selectNodeContents(span);
+        (id === current ? active : normal).push(range);
+      }
+    }
+    this.setHighlightRanges(COMMENT_HIGHLIGHT, normal);
+    this.setHighlightRanges(COMMENT_HIGHLIGHT_ACTIVE, active);
+  }
+
+  private setHighlightRanges(name: string, ranges: Range[]): void {
+    const highlight = sharedHighlight(name);
+    if (!highlight) return;
+    for (const range of this.highlightRanges[name]) highlight.delete(range);
+    for (const range of ranges) highlight.add(range);
+    this.highlightRanges[name] = ranges;
+  }
+
+  /** Places the comment bubble below the new comment's text or the open thread's text. */
+  private updateCommentBubble(): void {
+    const el = this.editable().nativeElement;
+    let rects: DOMRectList | null = null;
+    let id: string | null = null;
+    if (this.newComment() && this.pendingRange) {
+      rects = this.pendingRange.getClientRects();
+    } else if (this.activeComment() && !this.commentsPanel() && this.commentsEnabled()) {
+      id = this.activeComment();
+      const marks = el.querySelectorAll(commentSelector(id!));
+      rects = marks.length ? marks[marks.length - 1].getClientRects() : null;
+    }
+    if (!rects?.length) {
+      this.commentBubble.set(null);
+      return;
+    }
+    const box = this.root().nativeElement.getBoundingClientRect();
+    const content = el.getBoundingClientRect();
+    const end = rects[rects.length - 1];
+    if (end.bottom < content.top || end.top > content.bottom) {
+      this.commentBubble.set(null);
+      return;
+    }
+    const width = Math.min(COMMENT_BUBBLE_WIDTH, box.width - 8);
+    this.commentBubble.set({
+      id,
+      top: end.bottom - box.top + 6,
+      left: Math.max(4, Math.min(end.left - box.left, box.width - width - 4)),
+    });
+  }
+
   private handleSelectionChange(): void {
     const sel = this.doc.getSelection();
     const el = this.editable().nativeElement;
     if (!sel || sel.rangeCount === 0 || !el.contains(sel.anchorNode)) return;
     this.savedRange = sel.getRangeAt(0).cloneRange();
     if (this.selectedImage() && !this.imageStillSelected()) this.selectedImage.set(null);
+    this.activeComment.set(this.commentAt(sel.anchorNode));
     this.updateActiveStates();
   }
 
@@ -1993,6 +2550,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     this.updateCellOverlay();
     this.updateImageFrame();
     this.updateLinkBubble();
+    this.updateCommentBubble();
     const table = this.closestCell()?.closest('table');
     if (!table) {
       this.tableBar.set(null);

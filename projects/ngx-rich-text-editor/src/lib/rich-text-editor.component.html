@@ -4,6 +4,7 @@
   [class.nrte--focused]="focused()"
   [class.nrte--disabled]="isDisabled()"
   [class.nrte--source]="sourceMode()"
+  [class.nrte--comments-css]="!highlightApi"
 >
   @if (!hideToolbar() && mainItems().length) {
     <div class="nrte__toolbar nrte__toolbar--main" role="toolbar" aria-label="Formatting">
@@ -181,40 +182,101 @@
     </div>
   }
 
-  <div
-    #editable
-    class="nrte__content"
-    [class.nrte__content--empty]="isEmpty()"
-    [class.nrte__content--col-resize]="colResizeHover() || !!colGuide()"
-    [class.nrte__content--link-hover]="linkHover()"
-    [class.nrte__content--cell-select]="cellSelecting()"
-    [class.nrte__content--drop]="dropActive()"
-    [class.nrte__hidden]="sourceMode()"
-    [attr.contenteditable]="isDisabled() ? 'false' : 'true'"
-    [attr.data-placeholder]="placeholder()"
-    [attr.aria-label]="ariaLabel()"
-    [attr.aria-disabled]="isDisabled()"
-    [style.min-height]="minHeight()"
-    [style.max-height]="maxHeight()"
-    role="textbox"
-    aria-multiline="true"
-    spellcheck="true"
-    (input)="onInput($event)"
-    (paste)="onPaste($event)"
-    (dragstart)="onDragStart($event)"
-    (dragend)="onDragEnd()"
-    (dragover)="onDragOver($event)"
-    (dragleave)="onDragLeave($event)"
-    (drop)="onDrop($event)"
-    (focus)="onFocus()"
-    (blur)="onBlur()"
-    (keydown)="onKeydown($event)"
-    (scroll)="updateTableBar()"
-    (mousemove)="onContentMouseMove($event)"
-    (mousedown)="onContentMouseDown($event)"
-    (dblclick)="onContentDblClick($event)"
-    (click)="onContentClick($event)"
-  ></div>
+  <div class="nrte__body">
+    <div
+      #editable
+      class="nrte__content"
+      [class.nrte__content--empty]="isEmpty()"
+      [class.nrte__content--col-resize]="colResizeHover() || !!colGuide()"
+      [class.nrte__content--link-hover]="linkHover()"
+      [class.nrte__content--cell-select]="cellSelecting()"
+      [class.nrte__content--drop]="dropActive()"
+      [class.nrte__hidden]="sourceMode()"
+      [attr.contenteditable]="isDisabled() ? 'false' : 'true'"
+      [attr.data-placeholder]="placeholder()"
+      [attr.aria-label]="ariaLabel()"
+      [attr.aria-disabled]="isDisabled()"
+      [style.min-height]="minHeight()"
+      [style.max-height]="maxHeight()"
+      role="textbox"
+      aria-multiline="true"
+      spellcheck="true"
+      (input)="onInput($event)"
+      (paste)="onPaste($event)"
+      (dragstart)="onDragStart($event)"
+      (dragend)="onDragEnd()"
+      (dragover)="onDragOver($event)"
+      (dragleave)="onDragLeave($event)"
+      (drop)="onDrop($event)"
+      (focus)="onFocus()"
+      (blur)="onBlur()"
+      (keydown)="onKeydown($event)"
+      (scroll)="updateTableBar()"
+      (mousemove)="onContentMouseMove($event)"
+      (mousedown)="onContentMouseDown($event)"
+      (dblclick)="onContentDblClick($event)"
+      (click)="onContentClick($event)"
+    ></div>
+
+    @if (sourceMode()) {
+      <textarea
+        #sourceArea
+        class="nrte__source"
+        spellcheck="false"
+        aria-label="HTML"
+        [style.min-height]="minHeight()"
+        [style.max-height]="maxHeight()"
+        (input)="onSourceInput($event)"
+        (blur)="onBlur()"
+      ></textarea>
+    }
+
+    @if (commentsEnabled() && commentsPanel()) {
+      <aside class="nrte__panel" [attr.aria-label]="titles().commentsTitle">
+        <div class="nrte__panel-inner">
+          <div class="nrte__panel-head">
+            <span class="nrte__panel-title">{{ titles().commentsTitle }}</span>
+            <span class="nrte__panel-count">{{ openComments() }}</span>
+            <label class="nrte__panel-option">
+              <input type="checkbox" [checked]="showResolved()" (change)="showResolved.set($any($event.target).checked)" />
+              {{ titles().commentsShowResolved }}
+            </label>
+          </div>
+          @for (thread of panelThreads(); track thread.comment.id) {
+            <div
+              class="nrte__card"
+              [class.nrte__card--active]="activeComment() === thread.comment.id"
+              [class.nrte__card--resolved]="thread.comment.resolved"
+              [attr.data-comment-card]="thread.comment.id"
+              (click)="activeComment() !== thread.comment.id && selectComment(thread.comment.id)"
+            >
+              <div class="nrte__quote" [class.nrte__quote--deleted]="thread.quote === null">
+                {{ thread.quote ?? titles().commentTextDeleted }}
+              </div>
+              @if (activeComment() === thread.comment.id) {
+                <ng-container *ngTemplateOutlet="threadTpl; context: { $implicit: thread.comment }" />
+              } @else {
+                <div class="nrte__msg-head">
+                  <span class="nrte__avatar" [style.background]="colorOf(thread.comment.author)">{{ initials(thread.comment.author) }}</span>
+                  <span class="nrte__msg-author">{{ thread.comment.author.name }}</span>
+                  <time class="nrte__msg-date" [attr.datetime]="thread.comment.date">{{ formatDate(thread.comment.date) }}</time>
+                </div>
+                <div class="nrte__msg-text nrte__msg-text--clamp">{{ thread.comment.text }}</div>
+                @if (thread.comment.replies.length || thread.comment.resolved) {
+                  <div class="nrte__card-foot">
+                    @if (thread.comment.replies.length) { <span>↳ {{ thread.comment.replies.length }}</span> }
+                    @if (thread.comment.resolved) { <span class="nrte__badge">{{ titles().commentResolved }}</span> }
+                  </div>
+                }
+              }
+            </div>
+          } @empty {
+            <p class="nrte__panel-empty">{{ titles().commentsEmpty }}</p>
+          }
+        </div>
+      </aside>
+    }
+  </div>
 
   @if (focused() && linkBubble(); as link) {
     <button
@@ -260,6 +322,40 @@
     </div>
   }
 
+  @if (commentBubble(); as bubble) {
+    <div
+      class="nrte__comment-bubble"
+      role="dialog"
+      [attr.aria-label]="titles().comment"
+      [style.top.px]="bubble.top"
+      [style.left.px]="bubble.left"
+    >
+      @if (bubble.id === null) {
+        @if (currentUser(); as user) {
+          <div class="nrte__msg-head">
+            <span class="nrte__avatar" [style.background]="colorOf(user)">{{ initials(user) }}</span>
+            <span class="nrte__msg-author">{{ user.name }}</span>
+          </div>
+        }
+        <textarea
+          #draft
+          class="nrte__comment-input"
+          rows="3"
+          [placeholder]="titles().commentPlaceholder"
+          (keydown)="onCommentKeydown($event, draft, null)"
+        ></textarea>
+        <div class="nrte__comment-actions">
+          <button type="button" class="nrte__comment-btn" (click)="cancelComment()">{{ titles().commentCancel }}</button>
+          <button type="button" class="nrte__comment-btn nrte__comment-btn--primary" (click)="submitComment(draft)">
+            {{ titles().commentSubmit }}
+          </button>
+        </div>
+      } @else if (commentById(bubble.id); as comment) {
+        <ng-container *ngTemplateOutlet="threadTpl; context: { $implicit: comment }" />
+      }
+    </div>
+  }
+
   @if (cellOverlay(); as overlay) {
     <div
       class="nrte__cell-overlay"
@@ -270,18 +366,6 @@
     ></div>
   }
 
-  @if (sourceMode()) {
-    <textarea
-      #sourceArea
-      class="nrte__source"
-      spellcheck="false"
-      aria-label="HTML"
-      [style.min-height]="minHeight()"
-      [style.max-height]="maxHeight()"
-      (input)="onSourceInput($event)"
-      (blur)="onBlur()"
-    ></textarea>
-  }
 
   <!-- file picker of the `image` button -->
   <input
@@ -401,10 +485,57 @@
               }
               @case ('tableDelete') { <svg:path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /> }
               @case ('source') { <svg:path d="M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12" /> }
+              @case ('comment') { <svg:path d="M4 5h16v11H9l-5 4V5z" /><svg:path d="M12 8v5M9.5 10.5h5" /> }
+              @case ('commentsPanel') { <svg:rect x="3" y="4" width="18" height="16" rx="2" /><svg:path d="M15 4v16M17.5 8h1M17.5 11h1M17.5 14h1" /> }
             }
           </svg>
         }
       }
     }
   </button>
+</ng-template>
+
+<!-- thread of a comment: in the bubble and in the active card of the panel -->
+<ng-template #threadTpl let-comment>
+  <div class="nrte__thread" [class.nrte__thread--resolved]="comment.resolved">
+    @for (entry of threadEntries(comment); track entry.id) {
+      <div class="nrte__msg">
+        <div class="nrte__msg-head">
+          <span class="nrte__avatar" [style.background]="colorOf(entry.author)">{{ initials(entry.author) }}</span>
+          <span class="nrte__msg-author">{{ entry.author.name }}</span>
+          <time class="nrte__msg-date" [attr.datetime]="entry.date">{{ formatDate(entry.date) }}</time>
+          @if (canDelete(entry)) {
+            <button
+              type="button"
+              class="nrte__msg-delete"
+              [title]="titles().commentDelete"
+              [attr.aria-label]="titles().commentDelete"
+              (click)="$event.stopPropagation(); deleteEntry(comment, entry)"
+            >×</button>
+          }
+        </div>
+        <div class="nrte__msg-text">{{ entry.text }}</div>
+      </div>
+    }
+    @if (comment.resolved) {
+      <div class="nrte__card-foot"><span class="nrte__badge">{{ titles().commentResolved }}</span></div>
+    }
+    @if (canComment()) {
+      <textarea
+        #reply
+        class="nrte__comment-input"
+        rows="2"
+        [placeholder]="titles().replyPlaceholder"
+        (keydown)="onCommentKeydown($event, reply, comment.id)"
+      ></textarea>
+      <div class="nrte__comment-actions">
+        <button type="button" class="nrte__comment-btn" (click)="resolveComment(comment.id, !comment.resolved)">
+          {{ comment.resolved ? titles().commentReopen : titles().commentResolve }}
+        </button>
+        <button type="button" class="nrte__comment-btn nrte__comment-btn--primary" (click)="submitReply(comment.id, reply)">
+          {{ titles().commentReply }}
+        </button>
+      </div>
+    }
+  </div>
 </ng-template>

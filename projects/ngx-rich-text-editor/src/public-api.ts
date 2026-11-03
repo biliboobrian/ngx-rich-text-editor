@@ -3,5 +3,6 @@
  */
 export * from './lib/rich-text-editor.component';
 export * from './lib/icon.directive';
+export type { RteComment, RteCommentReply, RteUser } from './lib/comments';
 export * from './lib/toolbar';
 export * from './lib/sanitize';
