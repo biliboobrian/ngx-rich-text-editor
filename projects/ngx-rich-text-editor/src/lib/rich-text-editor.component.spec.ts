@@ -585,9 +585,93 @@ describe('RichTextEditorComponent', () => {
       expect(rows()[0].cells[0].style.borderTopStyle).toBe('hidden');
     });
 
+    describe('column resizing', () => {
+      const fixed = '<table style="table-layout: fixed; width: 300px"><colgroup>'
+        + '<col style="width: 100px"><col style="width: 100px"><col style="width: 100px"></colgroup>'
+        + '<tbody><tr><td>a</td><td>b</td><td>c</td></tr></tbody></table><p>after</p>';
+      const widths = () => Array.from(content.querySelectorAll('col'), (col) => col.style.width);
+      const tableWidth = () => content.querySelector('table')!.style.width;
+
+      /** Drags the border at viewport `x` (on the first row) by `dx`. */
+      async function dragBorder(x: number, dx: number): Promise<void> {
+        const cell = rows()[0].cells[0];
+        const y = cell.getBoundingClientRect().top + 5;
+        const target = document.elementFromPoint(x, y)!;
+        mouse(target, 'mousedown', { clientX: x, clientY: y });
+        mouse(document, 'mousemove', { clientX: x + dx, clientY: y });
+        mouse(document, 'mouseup', { clientX: x + dx, clientY: y });
+        await settle(fixture);
+      }
+
+      const cellRect = (c: number) => rows()[0].cells[c].getBoundingClientRect();
+      const tableRect = () => content.querySelector('table')!.getBoundingClientRect();
+
+      it('an inner border moves width between its two columns, the table keeps its width', async () => {
+        await edit(fixed);
+        await dragBorder(cellRect(0).right - 1, 30);
+        expect(widths()).toEqual(['130px', '70px', '100px']);
+        expect(tableWidth()).toBe('300px');
+        await dragBorder(cellRect(1).right - 1, -20);
+        expect(widths()).toEqual(['130px', '50px', '120px']);
+        expect(tableWidth()).toBe('300px');
+      });
+
+      it('the left border of a cell is its previous column border', async () => {
+        await edit(fixed);
+        await dragBorder(cellRect(1).left + 1, 30);
+        expect(widths()).toEqual(['130px', '70px', '100px']);
+      });
+
+      it('an inner border stops at the minimum width of its columns', async () => {
+        await edit(fixed);
+        await dragBorder(cellRect(0).right - 1, 500);
+        expect(widths()).toEqual(['170px', '30px', '100px']);
+        await dragBorder(cellRect(0).right - 1, -500);
+        expect(widths()).toEqual(['30px', '170px', '100px']);
+      });
+
+      it('the outer right border resizes the table through its last column', async () => {
+        await edit(fixed);
+        await dragBorder(tableRect().right - 1, 50);
+        expect(widths()).toEqual(['100px', '100px', '150px']);
+        expect(tableWidth()).toBe('350px');
+        await dragBorder(tableRect().right - 1, -500);
+        expect(widths()).toEqual(['100px', '100px', '30px']);
+        expect(tableWidth()).toBe('230px');
+      });
+
+      it('the outer left border resizes the table through its first column', async () => {
+        await edit(fixed);
+        await dragBorder(tableRect().left + 1, -20);
+        expect(widths()).toEqual(['120px', '100px', '100px']);
+        expect(tableWidth()).toBe('320px');
+      });
+
+      it('fixes automatic widths without changing the table width', async () => {
+        await edit('<table><tbody><tr><td>aaaa</td><td>bbbb</td></tr></tbody></table><p>after</p>');
+        const before = Math.round(tableRect().width);
+        await dragBorder(cellRect(0).right - 1, 10);
+        expect(widths().length).toBe(2);
+        expect(Math.abs(Math.round(tableRect().width) - before)).toBeLessThanOrEqual(1);
+      });
+
+      it('shows the resize cursor over the outer borders too', async () => {
+        await edit(fixed);
+        const rect = tableRect();
+        mouse(rows()[0].cells[0], 'mousemove', { clientX: rect.left + 1, clientY: rect.top + 5 });
+        await settle(fixture);
+        expect(content.classList).toContain('nrte__content--col-resize');
+      });
+    });
+
     it('Shift+click selects a rectangle of cells that formatting applies to', async () => {
       await edit('<table><tbody><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></tbody></table>', 'td', true);
-      mouse(rows()[1].cells[0], 'mousedown', { shiftKey: true });
+      const target = rows()[1].cells[0].getBoundingClientRect();
+      mouse(rows()[1].cells[0], 'mousedown', {
+        shiftKey: true,
+        clientX: target.left + target.width / 2,
+        clientY: target.top + target.height / 2,
+      });
       await settle(fixture);
       expect(el.querySelector('.nrte__cell-overlay')).not.toBeNull();
       await editor.execute('bold');

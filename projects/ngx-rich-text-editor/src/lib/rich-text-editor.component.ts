@@ -1173,7 +1173,9 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   /**
-   * Dragging a column border shows a guide; the new width is applied on release.
+   * Dragging a column border shows a guide; the new widths are applied on release. An inner border
+   * moves width between its two columns (the table keeps its width); only the outer left / right
+   * borders resize the table, through its first / last column.
    * Dragging across cells (or Shift+click) selects a rectangle of cells.
    */
   protected onContentMouseDown(event: MouseEvent): void {
@@ -1184,24 +1186,39 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       return;
     }
     event.preventDefault();
-    const { table, col } = target;
+    const { table } = target;
     const widths = columnWidths(table) ?? measureColumns(table);
+    const last = widths.length - 1;
+    // an inner border without a column after it (irregular table) behaves like the outer one
+    const edge = target.edge === 'inner' && target.col >= last ? 'right' : target.edge;
+    const col = edge === 'right' ? last : edge === 'left' ? 0 : target.col;
     const startX = event.clientX;
-    const widthAt = (x: number) => Math.max(MIN_COL_WIDTH, widths[col] + x - startX);
+    const widthsAt = (x: number): number[] => {
+      const next = [...widths];
+      const dx = x - startX;
+      if (edge === 'inner') {
+        const shift = Math.min(Math.max(dx, MIN_COL_WIDTH - widths[col]), widths[col + 1] - MIN_COL_WIDTH);
+        next[col] += shift;
+        next[col + 1] -= shift;
+      } else {
+        next[col] = Math.max(MIN_COL_WIDTH, widths[col] + (edge === 'left' ? -dx : dx));
+      }
+      return next;
+    };
     const move = (e: MouseEvent) => {
       const box = this.root().nativeElement.getBoundingClientRect();
       const rect = table.getBoundingClientRect();
-      const left = startX + widthAt(e.clientX) - widths[col] - box.left;
-      this.colGuide.set({ left, top: rect.top - box.top, height: rect.height });
+      const change = widthsAt(e.clientX)[col] - widths[col];
+      const x = startX + (edge === 'left' ? -change : change);
+      this.colGuide.set({ left: x - box.left, top: rect.top - box.top, height: rect.height });
     };
     const up = (e: MouseEvent) => {
       this.doc.removeEventListener('mousemove', move);
       this.doc.removeEventListener('mouseup', up);
       this.colGuide.set(null);
-      const width = widthAt(e.clientX);
-      if (width === widths[col]) return;
-      widths[col] = width;
-      this.rewriteTable(() => ({ widths }), table);
+      const next = widthsAt(e.clientX);
+      if (next.every((w, i) => w === widths[i])) return;
+      this.rewriteTable(() => ({ widths: next }), table);
       this.syncFromEditor();
       this.updateActiveStates();
     };
@@ -1335,15 +1352,24 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     this.updateActiveStates();
   }
 
-  /** Column whose right border is under the pointer. */
-  private resizeTarget(event: MouseEvent): { table: HTMLTableElement; col: number } | null {
+  /**
+   * Column border under the pointer: an outer edge of the table, or the inner border on the right
+   * of column `col`.
+   */
+  private resizeTarget(
+    event: MouseEvent,
+  ): { table: HTMLTableElement; col: number; edge: 'left' | 'right' | 'inner' } | null {
     if (this.isDisabled()) return null;
     const cell = (event.target as Element).closest?.('td, th') as HTMLTableCellElement | null;
     if (!cell || !this.editable().nativeElement.contains(cell)) return null;
     const table = cell.closest('table')!;
+    const outer = table.getBoundingClientRect();
     const rect = cell.getBoundingClientRect();
-    if (event.clientX >= rect.right - 5) return { table, col: cell.cellIndex };
-    if (event.clientX <= rect.left + 5 && cell.cellIndex > 0) return { table, col: cell.cellIndex - 1 };
+    const x = event.clientX;
+    if (x >= outer.right - 5) return { table, col: -1, edge: 'right' };
+    if (x <= outer.left + 5) return { table, col: 0, edge: 'left' };
+    if (x >= rect.right - 5) return { table, col: cell.cellIndex, edge: 'inner' };
+    if (x <= rect.left + 5 && cell.cellIndex > 0) return { table, col: cell.cellIndex - 1, edge: 'inner' };
     return null;
   }
 

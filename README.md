@@ -36,7 +36,8 @@ Lightweight **rich text editor for Angular** that takes **HTML as input** and em
 **Tables**
 - Insert a 3×3 table, floating bar to add / delete rows and columns or the table
 - <kbd>Tab</kbd> / <kbd>Shift + Tab</kbd> move between cells, <kbd>Tab</kbd> in the last cell adds a row
-- Column widths by dragging the borders (double-click: automatic widths)
+- Column widths by dragging the inner borders (the table keeps its width), table width by dragging
+  its outer left / right borders (double-click: automatic widths)
 - Cell selection by dragging or <kbd>Shift</kbd> + click: formatting, colors, borders and
   <kbd>Delete</kbd> apply to the selected cells
 - Cell text and background colors on the cell, row, column or selection
@@ -151,8 +152,10 @@ numbers — only that level changes (e.g. a bulleted sub-list inside a numbered 
 `table` inserts a 3×3 table. While the caret is in a table, a floating bar offers the
 row / column / delete commands (`RTE_TABLE_TOOLBAR`), plus table formatting:
 
-- **column widths**: drag a column border; double-click it to go back to automatic widths
-  (stored as `<colgroup>` + `table-layout: fixed`);
+- **column widths**: drag an inner column border to share the width between its two columns (the
+  table keeps its width); drag the outer left / right border to resize the table (through its first /
+  last column). Double-click a border to go back to automatic widths (stored as `<colgroup>` +
+  `table-layout: fixed`);
 - **text / background color** of the current cell, row or column (`tableTextColor`, `tableBackground`);
 - **borders** (`tableBorder`) of the selected cells, or of the whole table: pick the sides — top,
   bottom, left, right edges and/or the inside lines, independently — then a width (none, 1, 2,
