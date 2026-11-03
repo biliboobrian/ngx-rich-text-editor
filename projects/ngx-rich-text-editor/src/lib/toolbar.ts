@@ -88,6 +88,29 @@ export type RteCommand =
 /** A toolbar entry: a command, or `'|'` for a visual separator. */
 export type RteToolbarItem = RteCommand | '|';
 
+/** Behaviours that are not toolbar buttons and can be turned off with the `hide` input. */
+export type RteFeature =
+  /** Resize handles on a clicked image. */
+  | 'imageResize'
+  /** Moving an image by dragging it elsewhere in the text. */
+  | 'imageMove'
+  /** Inserting image files dropped from the desktop or pasted from the clipboard. */
+  | 'imageDrop'
+  /** Resizing table columns by dragging their borders. */
+  | 'columnResize'
+  /** Selecting a rectangle of table cells (drag or Shift+click). */
+  | 'cellSelection'
+  /** "Open link" button and Ctrl/⌘ + click on links. */
+  | 'linkOpen'
+  /** Floating bar shown above a table while the caret is in it. */
+  | 'tableToolbar';
+
+/**
+ * What the `hide` input can remove: a command (taken out of both toolbars, its keyboard shortcut
+ * and `execute()` are ignored) or a feature.
+ */
+export type RteHideable = RteCommand | RteFeature;
+
 /**
  * Texts of the editor that can be translated with the `labels` input: the command tooltips plus
  * the texts of the popups.

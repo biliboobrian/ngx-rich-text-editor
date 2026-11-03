@@ -5,6 +5,8 @@ import {
   RTE_LABELS_FR,
   RTE_TEXT_COLORS,
   RichTextEditorComponent,
+  RteHideable,
+  RteIconDirective,
   RteToolbarItem,
 } from '@biliboobrian/ngx-rich-text-editor';
 
@@ -142,7 +144,7 @@ function showcaseDocument(): string {
 
 @Component({
   selector: 'app-root',
-  imports: [RichTextEditorComponent, ReactiveFormsModule],
+  imports: [RichTextEditorComponent, RteIconDirective, ReactiveFormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main>
@@ -176,6 +178,36 @@ function showcaseDocument(): string {
           <pre>{{ showcase() }}</pre>
         </details>
       </section>
+
+      <section>
+        <h2>4. Barre personnalisée</h2>
+        <p>
+          Icônes remplacées par des templates <code>rteIcon</code>, thème sombre par variables CSS, et
+          fonctionnalités masquées avec <code>[hide]</code> :
+        </p>
+        <p class="hide-options">
+          @for (option of hideOptions; track option) {
+            <label>
+              <input type="checkbox" [checked]="hidden().includes(option)" (change)="toggleHidden(option)" />
+              {{ option }}
+            </label>
+          }
+        </p>
+        <ngx-rich-text-editor class="custom" [(value)]="custom" [labels]="fr" [hide]="hidden()" minHeight="120px">
+          <ng-template rteIcon="bold"><span class="ico">𝐁</span></ng-template>
+          <ng-template rteIcon="italic"><span class="ico">𝑰</span></ng-template>
+          <ng-template rteIcon="underline"><span class="ico">U̲</span></ng-template>
+          <ng-template rteIcon="undo"><span class="ico">↶</span></ng-template>
+          <ng-template rteIcon="redo"><span class="ico">↷</span></ng-template>
+          <ng-template rteIcon="link"><span class="ico">🔗</span></ng-template>
+          <ng-template rteIcon="image"><span class="ico">🖼️</span></ng-template>
+          <ng-template rteIcon="table"><span class="ico">▦</span></ng-template>
+          <ng-template rteIcon="textColor" let-color="color">
+            <span class="ico" [style.border-bottom]="'3px solid ' + color">A</span>
+          </ng-template>
+          <ng-template rteIcon="openLink"><span>↗</span></ng-template>
+        </ngx-rich-text-editor>
+      </section>
     </main>
   `,
   styles: `
@@ -184,6 +216,31 @@ function showcaseDocument(): string {
     pre { white-space: pre-wrap; word-break: break-all; background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 12px; font-size: 12px; }
     button { margin-top: 8px; }
     details { margin-top: 8px; }
+    .hide-options { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; }
+    .hide-options label { white-space: nowrap; }
+    ngx-rich-text-editor.custom {
+      --nrte-bg: #0d1117;
+      --nrte-text: #e6edf3;
+      --nrte-muted: #7d8590;
+      --nrte-border: #30363d;
+      --nrte-code-bg: #161b22;
+      --nrte-accent: #f78166;
+      --nrte-accent-bg: rgba(247, 129, 102, 0.15);
+      --nrte-radius: 12px;
+      --nrte-toolbar-bg: #161b22;
+      --nrte-toolbar-padding: 8px 10px;
+      --nrte-toolbar-gap: 6px;
+      --nrte-btn-size: 36px;
+      --nrte-btn-radius: 50%;
+      --nrte-btn-color: #c9d1d9;
+      --nrte-btn-hover-bg: #30363d;
+      --nrte-btn-active-bg: #f78166;
+      --nrte-btn-active-color: #0d1117;
+      --nrte-icon-size: 20px;
+      --nrte-icon-stroke: 1.5;
+      --nrte-sep-color: transparent;
+    }
+    .ico { font-size: 18px; line-height: 1; }
   `,
 })
 export class AppComponent {
@@ -200,6 +257,20 @@ export class AppComponent {
 
   readonly showcaseHtml = showcaseDocument();
   readonly showcase = signal(this.showcaseHtml);
+
+  readonly custom = signal(
+    '<h2>Barre personnalisée</h2><p>Du <b>gras</b>, un <a href="https://angular.dev">lien</a> et un tableau :</p>'
+      + '<table><tbody><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></tbody></table><p></p>',
+  );
+  readonly hideOptions: RteHideable[] = [
+    'image', 'table', 'source', 'code', 'blockquote', 'imageResize', 'imageMove', 'imageDrop',
+    'columnResize', 'cellSelection', 'linkOpen', 'tableToolbar',
+  ];
+  readonly hidden = signal<RteHideable[]>(['source', 'code']);
+
+  toggleHidden(option: RteHideable): void {
+    this.hidden.update((list) => (list.includes(option) ? list.filter((o) => o !== option) : [...list, option]));
+  }
 
   toggleDisabled(event: Event): void {
     (event.target as HTMLInputElement).checked ? this.control.disable() : this.control.enable();

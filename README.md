@@ -3,7 +3,8 @@
 Lightweight **rich text editor for Angular** that takes **HTML as input** and emits HTML.
 
 - Standalone component, signals, `OnPush`, zoneless-friendly
-- Two-way binding `[(value)]` **and** `ngModel` / Reactive Forms (`ControlValueAccessor`)
+- Two-way binding `[(value)]` **and** `ngModel` / Reactive Forms (`ControlValueAccessor`), or a
+  control bound directly with `[control]`
 - Incoming and pasted HTML is **sanitized** (allow-list: no `<script>`, no `on*` handlers, no `javascript:` URLs)
 - Configurable toolbar, i18n labels (English + French included), HTML source view
 - Themeable with CSS variables, no dependencies besides Angular
@@ -29,9 +30,10 @@ Lightweight **rich text editor for Angular** that takes **HTML as input** and em
 - Pluggable URL prompt (`promptFn`) to use your own dialog
 
 **Images**
-- Insert from a URL
+- Insert from your computer with the image button (file picker, embedded in base64), or from a
+  URL (`imageSource: 'url'`)
 - Drag and drop from the desktop, paste from the clipboard (e.g. screenshots)
-- Pluggable upload (`imageUpload`), data URLs by default
+- Pluggable upload (`imageUpload`), base64 by default
 - Resize with corner handles (proportional, live size, double-click for the original size)
 - Move an image by dragging it elsewhere in the text (<kbd>Ctrl</kbd> / <kbd>⌥</kbd> while dropping: copy)
 
@@ -48,7 +50,11 @@ Lightweight **rich text editor for Angular** that takes **HTML as input** and em
 **Editor**
 - HTML source view
 - Sanitizer with configurable allow-list (`sanitizeOptions`), optional plain-text paste
+- Forms: `[(value)]`, `ngModel`, `[formControl]` / `formControlName`, or `[control]` (no forms
+  directive needed)
 - Read-only mode, placeholder, min / max height, accessible labels
+- Customizable toolbars: buttons, custom icons (`rteIcon` templates), CSS variables for every size
+  and color, `hide` to turn off any command or feature
 - English and French labels, every text overridable
 - Public methods: `focus`, `getHtml`, `insertHtml`, `execute`, `setColor`, `setTableBorder`
 - JSDoc on the whole public API
@@ -97,9 +103,17 @@ Just one-way input + output:
 
 <!-- Template-driven -->
 <ngx-rich-text-editor [(ngModel)]="article.body" name="body" />
+
+<!-- Control bound directly, no forms directive needed -->
+<ngx-rich-text-editor [control]="form.controls.body" />
 ```
 
 `disable()` on the control puts the editor in read-only mode; `touched` is set on blur.
+
+`[control]` takes any `AbstractControl` (e.g. `FormControl<string>` or `FormControl<string | null>`)
+without importing `ReactiveFormsModule`: the editor follows its value and disabled state, edits
+update it and mark it dirty, blur marks it touched. Use it instead of `[formControl]` /
+`formControlName` / `ngModel`, not together.
 
 ## Inputs
 
@@ -109,6 +123,8 @@ Just one-way input + output:
 | `placeholder`     | `string`                              | `''`                  | Shown when empty. |
 | `toolbar`         | `RteToolbarItem[]`                    | `RTE_DEFAULT_TOOLBAR` | Buttons to show, `'|'` = separator. |
 | `hideToolbar`     | `boolean`                             | `false`               | Hide the toolbar. |
+| `tableToolbar`    | `RteToolbarItem[]`                    | `RTE_TABLE_TOOLBAR`   | Buttons of the floating table bar, `[]` hides it. |
+| `hide`            | `RteHideable[]`                       | `[]`                  | Commands and features to turn off (see [Customizing the toolbar](#customizing-the-toolbar)). |
 | `readonly`        | `boolean`                             | `false`               | Read-only mode. |
 | `labels`          | `Partial<Record<RteLabelKey, string>>` | English              | Tooltips. `RTE_LABELS_FR` is provided. |
 | `textColors`      | `string[]`                            | `RTE_TEXT_COLORS`     | Swatches of the text color palette. |
@@ -118,10 +134,12 @@ Just one-way input + output:
 | `pastePlainText`  | `boolean`                             | `false`               | Always paste as plain text. |
 | `linkTargetBlank` | `boolean`                             | `false`               | Inserted links open in a new tab. |
 | `promptFn`        | `RtePromptFn`                         | `window.prompt`       | Ask for link / image URLs (plug your own dialog, may return a Promise). |
-| `imageUpload`     | `RteImageUploadFn`                    | data URL              | Turns dropped / pasted image files into the `src` to use (e.g. upload and return the URL). |
+| `imageUpload`     | `RteImageUploadFn`                    | base64                | Turns picked / dropped / pasted image files into the `src` to use (e.g. upload and return the URL). |
+| `imageSource`     | `'file' \| 'url'`                     | `'file'`              | Image button: file picker (base64) or URL prompt (`promptFn`). |
 | `minHeight`       | `string`                              | `'160px'`             | Min height of the editable area. |
 | `maxHeight`       | `string \| null`                      | `null`                | Max height before scrolling. |
 | `ariaLabel`       | `string`                              | `'Rich text editor'`  | Accessible label. |
+| `control`         | `AbstractControl \| null`             | `null`                | Form control bound directly (value, disabled, dirty, touched). |
 
 ## Outputs
 
@@ -171,9 +189,13 @@ row / column / delete commands (`RTE_TABLE_TOOLBAR`), plus table formatting:
 Formatting is written as inline styles on the cells, so the HTML renders the same outside the
 editor. All list and table edits can be undone.
 
+The **image** button opens a file picker: the chosen images (png, jpeg, gif, webp, bmp, several at
+once) are inserted at the caret, embedded in base64. Set `imageSource="url"` to ask for an image URL
+instead (through `promptFn`).
+
 **Images** can also be dragged from the desktop into the editor (inserted where they are dropped)
-or pasted from the clipboard (e.g. a screenshot). By default they are embedded as data URLs; pass
-`imageUpload` to store them elsewhere:
+or pasted from the clipboard (e.g. a screenshot). By default they are embedded in base64 (data URLs); pass
+`imageUpload` to store them elsewhere (it is used for the image button too):
 
 ```ts
 upload: RteImageUploadFn = async (file) => {
@@ -215,24 +237,98 @@ this.editor().getHtml();
 
 The sanitizer is also exported: `sanitizeHtml(html, document, options?)`.
 
-## Theming
+## Customizing the toolbar
+
+### Buttons and features
+
+`toolbar` and `tableToolbar` set the buttons of the main toolbar and of the floating table bar.
+To keep the default layout but drop a few things, use `hide`: hidden commands disappear from both
+bars (with the separators left alone) and their keyboard shortcut and `execute()` are ignored.
+
+```html
+<ngx-rich-text-editor [(value)]="html" [hide]="['image', 'table', 'source', 'columnResize']" />
+```
+
+`hide` also turns off features that aren't buttons:
+
+| Feature         | Turns off |
+| --------------- | --------- |
+| `imageResize`   | resize handles on a clicked image |
+| `imageMove`     | moving an image by dragging it |
+| `imageDrop`     | inserting dropped / pasted image files (hiding `image` does it too) |
+| `columnResize`  | resizing table columns from their borders |
+| `cellSelection` | selecting table cells (drag, Shift+click) |
+| `linkOpen`      | "open link" button and <kbd>Ctrl/⌘ + click</kbd> |
+| `tableToolbar`  | the floating table bar |
+
+### Icons
+
+Replace the icon of any button with an `rteIcon` template (SVG, icon font, image…). The button
+itself — size, hover, tooltip, accessibility — is kept. The template gets the command, its `active`
+state and, for the color commands, the last `color` picked. `openLink` replaces the icon of the
+"open link" button.
+
+```ts
+import { RichTextEditorComponent, RteIconDirective } from '@biliboobrian/ngx-rich-text-editor';
+
+@Component({
+  imports: [RichTextEditorComponent, RteIconDirective],
+  template: `
+    <ngx-rich-text-editor [(value)]="html">
+      <ng-template rteIcon="bold"><span class="material-icons">format_bold</span></ng-template>
+      <ng-template rteIcon="textColor" let-color="color">
+        <span class="material-icons" [style.color]="color">format_color_text</span>
+      </ng-template>
+      <ng-template rteIcon="undo" let-active="active"><img src="/icons/undo.svg" alt="" /></ng-template>
+    </ngx-rich-text-editor>
+  `,
+})
+```
+
+### Theming
+
+Set CSS variables on the editor element (or a class on it); every default can be overridden:
 
 ```css
 ngx-rich-text-editor {
+  /* editor */
   --nrte-accent: #e91e63;
   --nrte-accent-bg: rgba(233, 30, 99, 0.12);
   --nrte-border: #ccc;
   --nrte-radius: 4px;
   --nrte-bg: #fff;
-  --nrte-toolbar-bg: #fafafa;
   --nrte-text: #222;
   --nrte-muted: #999;
   --nrte-code-bg: #f3f4f6;
   --nrte-font: inherit;
+
+  /* toolbars */
+  --nrte-toolbar-bg: #fafafa;
+  --nrte-toolbar-border: #ccc;        /* line under the toolbar, table bar border */
+  --nrte-toolbar-padding: 6px;
+  --nrte-toolbar-gap: 2px;
+  --nrte-btn-size: 30px;              /* height and min width of the buttons */
+  --nrte-btn-radius: 6px;
+  --nrte-btn-color: inherit;
+  --nrte-btn-hover-bg: rgba(233, 30, 99, 0.12);
+  --nrte-btn-hover-color: inherit;
+  --nrte-btn-active-bg: rgba(233, 30, 99, 0.12);
+  --nrte-btn-active-color: #e91e63;
+  --nrte-btn-disabled-opacity: 0.4;
+  --nrte-icon-size: 18px;
+  --nrte-icon-stroke: 2;              /* line width of the built-in icons */
+  --nrte-sep-color: #ccc;
 }
 ```
 
-All internal classes are prefixed with `.nrte` if you need deeper customisation.
+For anything else, the markup has stable hooks (all classes are prefixed with `.nrte`):
+`.nrte__toolbar--main`, `.nrte__tablebar`, `.nrte__btn`, `.nrte__btn--active`, `.nrte__sep`,
+`.nrte__icon`, and each button has a `data-command` attribute:
+
+```css
+ngx-rich-text-editor .nrte__btn[data-command='bold'] { color: #c92a2a; }
+ngx-rich-text-editor .nrte__toolbar--main { position: sticky; top: 0; z-index: 4; }
+```
 
 ## Notes
 

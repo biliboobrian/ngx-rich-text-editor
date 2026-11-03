@@ -2,6 +2,7 @@ import { Component, provideZonelessChangeDetection, signal, viewChild } from '@a
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { RichTextEditorComponent } from './rich-text-editor.component';
+import { RteIconDirective } from './icon.directive';
 import { RTE_LABELS_FR, RtePromptFn } from './toolbar';
 
 /** Waits for the async `selectionchange` events, then for change detection. */
@@ -302,11 +303,85 @@ describe('RichTextEditorComponent', () => {
       expect(editor.value()).toBe('<p>abc</p>');
     });
 
-    it('inserts an image from a URL', async () => {
+    it('inserts an image from a URL with imageSource "url"', async () => {
+      fixture.componentRef.setInput('imageSource', 'url');
       answer = 'https://example.com/a.png';
       await edit('<p>a</p>', 'p', true);
       await editor.execute('image');
       expect(editor.value()).toBe('<p><img src="https://example.com/a.png" alt="">a</p>');
+    });
+  });
+
+  describe('image button (file picker)', () => {
+    const picker = () => el.querySelector<HTMLInputElement>('input[type="file"]')!;
+
+    /** A real PNG file of the given size. */
+    async function pngFile(name: string, width = 4, height = 2): Promise<File> {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'));
+      return new File([blob], name, { type: 'image/png' });
+    }
+
+    /** Chooses `files` in the picker, as the user would in the file dialog. */
+    async function pick(files: File[]): Promise<void> {
+      const transfer = new DataTransfer();
+      for (const file of files) transfer.items.add(file);
+      picker().files = transfer.files;
+      picker().dispatchEvent(new Event('change'));
+      await settle(fixture);
+      await new Promise((resolve) => setTimeout(resolve, 50)); // FileReader
+      await settle(fixture);
+    }
+
+    it('opens the file picker, limited to the image types kept in base64', async () => {
+      await setup();
+      await edit('<p>a</p>', 'p', true);
+      const click = spyOn(picker(), 'click');
+      await editor.execute('image');
+      expect(click).toHaveBeenCalled();
+      expect(picker().accept).toBe('image/png,image/jpeg,image/gif,image/webp,image/bmp');
+      expect(picker().multiple).toBeTrue();
+      expect(picker().hidden).toBeTrue();
+    });
+
+    it('inserts the picked images in base64 where the caret was', async () => {
+      await setup();
+      await edit('<p>ab</p>', 'p');
+      caret(content.querySelector('p')!.firstChild!, 1);
+      await settle(fixture);
+      spyOn(picker(), 'click');
+      await editor.execute('image');
+      // the file dialog takes the focus away
+      content.blur();
+      document.getSelection()!.removeAllRanges();
+      await pick([await pngFile('one.png'), await pngFile('two.png')]);
+      const images = Array.from(content.querySelectorAll('img'));
+      expect(images.length).toBe(2);
+      expect(images.every((img) => img.src.startsWith('data:image/png;base64,'))).toBeTrue();
+      expect(content.querySelector('p')!.firstChild!.textContent).toBe('a');
+      expect(content.querySelector('p')!.lastChild!.textContent).toBe('b');
+    });
+
+    it('goes through imageUpload when it is set', async () => {
+      const imageUpload = jasmine.createSpy('imageUpload').and.resolveTo('https://cdn.test/up.png');
+      await setup({ imageUpload });
+      await edit('<p>a</p>', 'p', true);
+      spyOn(picker(), 'click');
+      await editor.execute('image');
+      const file = await pngFile('photo.png');
+      await pick([file]);
+      expect(imageUpload).toHaveBeenCalledWith(file);
+      expect(editor.value()).toBe('<p><img src="https://cdn.test/up.png" alt="">a</p>');
+    });
+
+    it('ignores files that are not images and lets the same file be picked again', async () => {
+      await setup();
+      await edit('<p>a</p>', 'p', true);
+      await pick([new File(['x'], 'notes.txt', { type: 'text/plain' })]);
+      expect(editor.value()).toBe('<p>a</p>');
+      expect(picker().value).toBe('');
     });
   });
 
@@ -825,6 +900,322 @@ describe('RichTextEditorComponent with forms', () => {
     fixture.componentInstance.control.enable();
     await settle(fixture);
     expect(content.getAttribute('contenteditable')).toBe('true');
+  });
+});
+
+describe('RichTextEditorComponent customization', () => {
+  describe('custom icons', () => {
+    @Component({
+      imports: [RichTextEditorComponent, RteIconDirective],
+      template: `
+        <ngx-rich-text-editor [(value)]="html" [toolbar]="['bold', 'italic', 'textColor']">
+          <ng-template rteIcon="bold" let-active="active">
+            <i class="my-bold" [class.on]="active">B!</i>
+          </ng-template>
+          <ng-template rteIcon="textColor" let-color="color" let-command>
+            <i class="my-color" [attr.data-cmd]="command" [style.color]="color">A</i>
+          </ng-template>
+          <ng-template rteIcon="openLink"><i class="my-open">↗</i></ng-template>
+        </ngx-rich-text-editor>
+      `,
+    })
+    class HostComponent {
+      readonly html = signal('<p>abc <a href="https://example.com">link</a></p>');
+    }
+
+    let fixture: ComponentFixture<HostComponent>;
+    let el: HTMLElement;
+    let content: HTMLElement;
+
+    beforeEach(async () => {
+      TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+      fixture = TestBed.createComponent(HostComponent);
+      await settle(fixture);
+      el = fixture.nativeElement;
+      content = el.querySelector('.nrte__content')!;
+    });
+
+    it('replaces the icon of a button and keeps the button', () => {
+      const bold = el.querySelector('[data-command="bold"]')!;
+      expect(bold.querySelector('.my-bold')?.textContent).toBe('B!');
+      expect(bold.querySelector('b')).toBeNull();
+      expect(bold.getAttribute('title')).toBe('Bold');
+      // other buttons keep the default icon
+      expect(el.querySelector('[data-command="italic"] i.nrte__txt')).not.toBeNull();
+    });
+
+    it('gives the active state to the template', async () => {
+      content.focus();
+      select(content.querySelector('p')!.firstChild!, 0, 3);
+      el.querySelector<HTMLButtonElement>('[data-command="bold"]')!.click();
+      await settle(fixture);
+      expect(el.querySelector('.my-bold')!.classList).toContain('on');
+    });
+
+    it('gives the command and the last color to the template', () => {
+      const icon = el.querySelector<HTMLElement>('[data-command="textColor"] .my-color')!;
+      expect(icon.dataset['cmd']).toBe('textColor');
+      expect(icon.style.color).toBe('rgb(201, 42, 42)');
+    });
+
+    it('replaces the icon of the "open link" button', async () => {
+      content.focus();
+      caret(content.querySelector('a')!.firstChild!, 1);
+      await settle(fixture);
+      expect(el.querySelector('.nrte__link-open .my-open')).not.toBeNull();
+      expect(el.querySelector('.nrte__link-open svg')).toBeNull();
+    });
+  });
+
+  describe('hide', () => {
+    let fixture: ComponentFixture<RichTextEditorComponent>;
+    let editor: RichTextEditorComponent;
+    let el: HTMLElement;
+    let content: HTMLElement;
+    const commands = (selector: string) =>
+      Array.from(el.querySelectorAll(`${selector} > *`), (n) => n.getAttribute('data-command') ?? '|');
+
+    async function setup(inputs: Record<string, unknown>, html = ''): Promise<void> {
+      TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+      fixture = TestBed.createComponent(RichTextEditorComponent);
+      editor = fixture.componentInstance;
+      for (const [name, value] of Object.entries(inputs)) fixture.componentRef.setInput(name, value);
+      fixture.componentRef.setInput('value', html);
+      await settle(fixture);
+      el = fixture.nativeElement;
+      content = el.querySelector('.nrte__content')!;
+    }
+
+    it('removes hidden commands and the separators left alone', async () => {
+      await setup({ toolbar: ['bold', '|', 'image', 'table', '|', 'italic', '|', 'source'], hide: ['image', 'table', 'source'] });
+      expect(commands('.nrte__toolbar--main')).toEqual(['bold', '|', 'italic']);
+    });
+
+    it('removes the toolbar when every command is hidden', async () => {
+      await setup({ toolbar: ['bold', '|', 'italic'], hide: ['bold', 'italic'] });
+      expect(el.querySelector('.nrte__toolbar--main')).toBeNull();
+    });
+
+    it('ignores hidden commands in execute()', async () => {
+      await setup({ hide: ['h1'] }, '<p>abc</p>');
+      content.focus();
+      select(content.querySelector('p')!);
+      await editor.execute('h1');
+      expect(editor.value()).toBe('<p>abc</p>');
+    });
+
+    it('blocks the keyboard shortcut of a hidden command', async () => {
+      await setup({ hide: ['bold', 'link'] }, '<p>abc</p>');
+      const press = (key: string) =>
+        content.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true }));
+      expect(press('b')).toBeFalse();
+      expect(press('k')).toBeFalse();
+      expect(press('i')).toBeTrue();
+    });
+
+    it('configures and hides the table bar', async () => {
+      const table = '<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>';
+      await setup({ tableToolbar: ['tableRowBelow', '|', 'tableDelete'], hide: ['tableDelete'] }, table);
+      content.focus();
+      caret(content.querySelector('td')!.firstChild!, 0);
+      await settle(fixture);
+      expect(commands('.nrte__tablebar')).toEqual(['tableRowBelow']);
+
+      fixture.componentRef.setInput('hide', ['tableToolbar']);
+      await settle(fixture);
+      expect(el.querySelector('.nrte__tablebar')).toBeNull();
+      fixture.componentRef.setInput('hide', []);
+      fixture.componentRef.setInput('tableToolbar', []);
+      await settle(fixture);
+      expect(el.querySelector('.nrte__tablebar')).toBeNull();
+    });
+
+    it('columnResize: no resizing from the column borders', async () => {
+      await setup({ hide: ['columnResize'] }, '<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>');
+      const cell = content.querySelector('td')!;
+      const rect = cell.getBoundingClientRect();
+      mouse(cell, 'mousemove', { clientX: rect.right - 1, clientY: rect.top + 5 });
+      await settle(fixture);
+      expect(content.classList).not.toContain('nrte__content--col-resize');
+    });
+
+    it('cellSelection: Shift+click selects no cells', async () => {
+      await setup({ hide: ['cellSelection'] }, '<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>');
+      content.focus();
+      caret(content.querySelector('td')!.firstChild!, 0);
+      const target = content.querySelectorAll('td')[1];
+      const rect = target.getBoundingClientRect();
+      mouse(target, 'mousedown', { shiftKey: true, clientX: rect.left + rect.width / 2, clientY: rect.top + 5 });
+      await settle(fixture);
+      expect(el.querySelector('.nrte__cell-overlay')).toBeNull();
+    });
+
+    it('imageResize: no handles on a clicked image', async () => {
+      await setup({ hide: ['imageResize'] }, `<p><img src="${pngDataUrl(40, 20)}"></p>`);
+      content.focus();
+      mouse(content.querySelector('img')!, 'click');
+      await settle(fixture);
+      expect(el.querySelector('.nrte__image-frame')).toBeNull();
+    });
+
+    it('imageMove: images of the editor cannot be dragged', async () => {
+      await setup({ hide: ['imageMove'] }, `<p><img src="${pngDataUrl(40, 20)}"></p>`);
+      const started = content.querySelector('img')!.dispatchEvent(
+        new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }),
+      );
+      expect(started).toBeFalse();
+    });
+
+    for (const hidden of ['image', 'imageDrop'] as const) {
+      it(`${hidden}: pasted and dropped image files are ignored`, async () => {
+        const imageUpload = jasmine.createSpy('imageUpload').and.resolveTo('https://cdn.test/a.png');
+        await setup({ hide: [hidden], imageUpload }, '<p>a</p>');
+        content.focus();
+        caret(content.querySelector('p')!.firstChild!, 0);
+        const files = () => {
+          const transfer = new DataTransfer();
+          transfer.items.add(new File(['x'], 'a.png', { type: 'image/png' }));
+          return transfer;
+        };
+        content.dispatchEvent(new ClipboardEvent('paste', { clipboardData: files(), bubbles: true, cancelable: true }));
+        const over = new DragEvent('dragover', { dataTransfer: files(), bubbles: true, cancelable: true });
+        content.dispatchEvent(over);
+        content.dispatchEvent(new DragEvent('drop', { dataTransfer: files(), bubbles: true, cancelable: true }));
+        await settle(fixture);
+        expect(over.dataTransfer!.dropEffect).toBe('none');
+        expect(imageUpload).not.toHaveBeenCalled();
+        expect(editor.value()).toBe('<p>a</p>');
+      });
+    }
+
+    it('linkOpen: no "open link" button and no Ctrl+click', async () => {
+      await setup({ hide: ['linkOpen'] }, '<p><a href="https://example.com">link</a></p>');
+      const open = spyOn(window, 'open');
+      content.focus();
+      caret(content.querySelector('a')!.firstChild!, 1);
+      await settle(fixture);
+      expect(el.querySelector('.nrte__link-open')).toBeNull();
+      mouse(content.querySelector('a')!, 'click', { ctrlKey: true });
+      expect(open).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('theme', () => {
+    let style: HTMLStyleElement;
+
+    afterEach(() => style.remove());
+
+    it('CSS variables set on the editor element win over the defaults', async () => {
+      style = document.createElement('style');
+      style.textContent = 'ngx-rich-text-editor { --nrte-accent: rgb(255, 0, 0); --nrte-btn-size: 40px; --nrte-icon-size: 24px; }';
+      document.head.append(style);
+      @Component({ imports: [RichTextEditorComponent], template: '<ngx-rich-text-editor />' })
+      class HostComponent {}
+      TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+      const fixture = TestBed.createComponent(HostComponent);
+      await settle(fixture);
+      const el: HTMLElement = fixture.nativeElement.querySelector('ngx-rich-text-editor');
+      expect(getComputedStyle(el).getPropertyValue('--nrte-accent').trim()).toBe('rgb(255, 0, 0)');
+      expect(el.querySelector<HTMLElement>('[data-command="undo"]')!.getBoundingClientRect().height).toBe(40);
+      expect(el.querySelector('[data-command="undo"] svg')!.getBoundingClientRect().width).toBe(24);
+    });
+  });
+});
+
+describe('RichTextEditorComponent with [control]', () => {
+  @Component({
+    imports: [RichTextEditorComponent],
+    template: `<ngx-rich-text-editor [control]="current()" />`,
+  })
+  class HostComponent {
+    readonly first = new FormControl('<p>start</p>', { nonNullable: true });
+    readonly second = new FormControl<string | null>('<p>second</p>');
+    readonly current = signal<FormControl<string> | FormControl<string | null> | null>(this.first);
+  }
+
+  let fixture: ComponentFixture<HostComponent>;
+  let host: HostComponent;
+  let content: HTMLElement;
+
+  async function type(text: string): Promise<void> {
+    content.focus();
+    select(content.querySelector('p')!);
+    document.execCommand('insertText', false, text);
+    await settle(fixture);
+  }
+
+  beforeEach(async () => {
+    TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+    fixture = TestBed.createComponent(HostComponent);
+    host = fixture.componentInstance;
+    await settle(fixture);
+    content = fixture.nativeElement.querySelector('.nrte__content');
+  });
+
+  it('shows the control value', () => {
+    expect(content.innerHTML).toBe('<p>start</p>');
+  });
+
+  it('follows setValue', async () => {
+    host.first.setValue('<p>next</p>');
+    await settle(fixture);
+    expect(content.innerHTML).toBe('<p>next</p>');
+  });
+
+  it('updates the control on input and marks it dirty, then touched on blur', async () => {
+    expect(host.first.dirty).toBeFalse();
+    await type('typed');
+    expect(host.first.value).toBe('<p>typed</p>');
+    expect(host.first.dirty).toBeTrue();
+    expect(host.first.touched).toBeFalse();
+    content.dispatchEvent(new FocusEvent('blur'));
+    expect(host.first.touched).toBeTrue();
+  });
+
+  it('is read-only while the control is disabled', async () => {
+    host.first.disable();
+    await settle(fixture);
+    expect(content.getAttribute('contenteditable')).toBe('false');
+    host.first.enable();
+    await settle(fixture);
+    expect(content.getAttribute('contenteditable')).toBe('true');
+  });
+
+  it('switches to another control and stops updating the previous one', async () => {
+    host.current.set(host.second);
+    await settle(fixture);
+    expect(content.innerHTML).toBe('<p>second</p>');
+    await type('edited');
+    expect(host.second.value).toBe('<p>edited</p>');
+    expect(host.first.value).toBe('<p>start</p>');
+    host.first.setValue('<p>ignored</p>');
+    await settle(fixture);
+    expect(content.innerHTML).toBe('<p>edited</p>');
+  });
+
+  it('treats a null value as empty', async () => {
+    host.current.set(host.second);
+    host.second.setValue(null);
+    await settle(fixture);
+    expect(content.innerHTML).toBe('');
+  });
+
+  it('unbinding the control re-enables the editor', async () => {
+    host.first.disable();
+    await settle(fixture);
+    host.current.set(null);
+    await settle(fixture);
+    expect(content.getAttribute('contenteditable')).toBe('true');
+  });
+
+  it('reports edits made in the HTML source view', async () => {
+    const editor = fixture.debugElement.children[0].componentInstance as RichTextEditorComponent;
+    await editor.execute('source');
+    await settle(fixture);
+    const area: HTMLTextAreaElement = fixture.nativeElement.querySelector('.nrte__source');
+    area.value = '<p>from source</p>';
+    area.dispatchEvent(new Event('input'));
+    expect(host.first.value).toBe('<p>from source</p>');
   });
 });
 

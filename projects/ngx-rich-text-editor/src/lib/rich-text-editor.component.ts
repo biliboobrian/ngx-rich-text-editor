@@ -8,6 +8,7 @@ import {
   afterNextRender,
   booleanAttribute,
   computed,
+  contentChildren,
   effect,
   forwardRef,
   inject,
@@ -18,7 +19,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { DOCUMENT, NgTemplateOutlet, isPlatformBrowser } from '@angular/common';
-import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
+import { AbstractControl, ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 import { RteSanitizeOptions, isSafeUrl, sanitizeHtml } from './sanitize';
 import {
   RTE_BACKGROUND_COLORS,
@@ -31,8 +32,10 @@ import {
   RteImageUploadFn,
   RteLabelKey,
   RtePromptFn,
+  RteHideable,
   RteToolbarItem,
 } from './toolbar';
+import { RteIconContext, RteIconDirective } from './icon.directive';
 
 const BLOCK_COMMANDS: Partial<Record<RteCommand, string>> = {
   paragraph: 'p',
@@ -74,7 +77,7 @@ const TABLE_COMMANDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
   'tableRowDelete', 'tableColDelete', 'tableDelete',
 ]);
 
-/** Height of the floating table bar, used to place it above the table. */
+/** Default height of the floating table bar, used to place it before it is rendered. */
 const TABLE_BAR_HEIGHT = 38;
 
 /**
@@ -330,6 +333,20 @@ export class RichTextEditorComponent implements ControlValueAccessor {
    */
   readonly toolbar = input<readonly RteToolbarItem[]>(RTE_DEFAULT_TOOLBAR);
   /**
+   * Buttons of the floating bar shown above a table while the caret is in it. `[]` hides the bar.
+   * @default RTE_TABLE_TOOLBAR
+   */
+  readonly tableToolbar = input<readonly RteToolbarItem[]>(RTE_TABLE_TOOLBAR);
+  /**
+   * Commands and features to turn off. A hidden command is taken out of both toolbars, and its
+   * keyboard shortcut and `execute()` are ignored (hiding `image` also blocks dropped / pasted
+   * images). Features: `imageResize`, `imageMove`, `imageDrop`, `columnResize`, `cellSelection`,
+   * `linkOpen`, `tableToolbar`.
+   * @default []
+   * @example [hide]="['image', 'table', 'source', 'columnResize']"
+   */
+  readonly hide = input<readonly RteHideable[]>([]);
+  /**
    * Hides the main toolbar (keyboard shortcuts and the public methods still work).
    * @default false
    */
@@ -387,11 +404,18 @@ export class RichTextEditorComponent implements ControlValueAccessor {
    */
   readonly promptFn = input<RtePromptFn>(defaultPrompt);
   /**
-   * Handles image files dropped or pasted in the editor: return the URL to use as `src` (e.g. after
-   * an upload). Throw or reject to skip a file.
-   * @default embeds the image as a `data:` URL
+   * Handles image files picked with the `image` button, dropped or pasted in the editor: return the
+   * URL to use as `src` (e.g. after an upload). Throw or reject to skip a file.
+   * @default embeds the image in base64 (`data:` URL)
    */
   readonly imageUpload = input<RteImageUploadFn>(readAsDataUrl);
+  /**
+   * What the `image` button asks for: `'file'` opens the file picker (images from the user's
+   * computer, embedded in base64 unless `imageUpload` says otherwise), `'url'` asks for an image URL
+   * through `promptFn`.
+   * @default 'file'
+   */
+  readonly imageSource = input<'file' | 'url'>('file');
   /**
    * Minimum height of the editable area (any CSS length).
    * @default '160px'
@@ -407,6 +431,14 @@ export class RichTextEditorComponent implements ControlValueAccessor {
    * @default 'Rich text editor'
    */
   readonly ariaLabel = input<string>('Rich text editor');
+  /**
+   * Form control bound directly, without the forms directives: the editor shows its value and
+   * follows its disabled state; edits update it (and mark it dirty), leaving the editor marks it
+   * touched. Use it instead of `[formControl]` / `formControlName` / `ngModel`, not together.
+   * @default null
+   * @example <ngx-rich-text-editor [control]="form.controls.body" />
+   */
+  readonly control = input<AbstractControl<string | null | undefined> | null>(null);
 
   /** Emitted when the editable area gains focus. */
   readonly editorFocus = output<void>();
@@ -416,13 +448,15 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   protected readonly root = viewChild.required<ElementRef<HTMLDivElement>>('root');
   protected readonly editable = viewChild.required<ElementRef<HTMLDivElement>>('editable');
   protected readonly sourceArea = viewChild<ElementRef<HTMLTextAreaElement>>('sourceArea');
+  private readonly imagePicker = viewChild.required<ElementRef<HTMLInputElement>>('imagePicker');
+  /** Image types the file picker offers: the ones the sanitizer keeps as base64. */
+  protected readonly imageAccept = 'image/png,image/jpeg,image/gif,image/webp,image/bmp';
 
   protected readonly focused = signal(false);
   protected readonly sourceMode = signal(false);
   protected readonly active = signal<Partial<Record<RteCommand, boolean>>>({});
   /** Position of the floating table bar, or null when the caret isn't in a table. */
   protected readonly tableBar = signal<{ top: number; left: number } | null>(null);
-  protected readonly tableToolbar = RTE_TABLE_TOOLBAR;
   /** Open popup (color palette or table borders) and its position, below its toolbar button. */
   protected readonly palette = signal<{ kind: RteColorKind | 'tableBorder'; top: number; left: number } | null>(null);
   /** Last color picked for each kind, shown under the toolbar buttons. */
@@ -470,8 +504,23 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   protected readonly imageFrame = signal<{ top: number; left: number; width: number; height: number; label?: string } | null>(null);
   protected readonly imageCorners: readonly RteImageCorner[] = ['nw', 'ne', 'sw', 'se'];
   private readonly formDisabled = signal(false);
+  /** Commands and features turned off by the `hide` input. */
+  private readonly hidden = computed(() => new Set<RteHideable>(this.hide()));
+  /** Main toolbar without the hidden commands. */
+  protected readonly mainItems = computed(() => this.visibleItems(this.toolbar()));
+  /** Table bar without the hidden commands (empty when the bar is hidden). */
+  protected readonly tableItems = computed(() =>
+    this.hidden().has('tableToolbar') ? [] : this.visibleItems(this.tableToolbar()),
+  );
+  /** Custom icons given with `<ng-template rteIcon="…">`. */
+  private readonly iconDirectives = contentChildren(RteIconDirective);
+  protected readonly iconTemplates = computed(
+    () => new Map(this.iconDirectives().map((icon) => [icon.rteIcon(), icon.template] as const)),
+  );
+  /** Disabled state of the `control` input. */
+  private readonly controlDisabled = signal(false);
 
-  protected readonly isDisabled = computed(() => this.readonly() || this.formDisabled());
+  protected readonly isDisabled = computed(() => this.readonly() || this.formDisabled() || this.controlDisabled());
   protected readonly isEmpty = computed(() => !this.value());
   protected readonly titles = computed(() => ({ ...RTE_DEFAULT_LABELS, ...this.labels() }));
 
@@ -483,12 +532,30 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   /** Set while the editor rewrites a table itself (its input events don't end a cell selection). */
   private internalEdit = false;
   private savedRange: Range | null = null;
+  /** Caret position when the file picker was opened. */
+  private pickerRange: Range | null = null;
   /** Image of the editor being dragged (dropping it in the editor moves it). */
   private draggedImage: HTMLImageElement | null = null;
   private onChange: (value: string) => void = () => {};
   private onTouched: () => void = () => {};
 
   constructor() {
+    // `control` input: follow its value and disabled state (each change of the input resubscribes).
+    effect((onCleanup) => {
+      const control = this.control();
+      if (!control) {
+        this.controlDisabled.set(false);
+        return;
+      }
+      const sync = () => {
+        this.value.set(control.value ?? '');
+        this.controlDisabled.set(control.disabled);
+      };
+      sync();
+      const subscriptions = [control.valueChanges.subscribe(sync), control.statusChanges.subscribe(sync)];
+      onCleanup(() => subscriptions.forEach((s) => s.unsubscribe()));
+    });
+
     // Push external value changes into the editable element.
     effect(() => {
       const html = this.value() ?? '';
@@ -642,7 +709,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
    * @example await editor.execute('bold');
    */
   async execute(command: RteCommand): Promise<void> {
-    if (this.isDisabled()) return;
+    if (this.isDisabled() || this.isHidden(command)) return;
     if (command === 'source') {
       this.toggleSource();
       return;
@@ -711,6 +778,28 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   // ------------------------------------------------------- template helpers
+
+  /** True when `hide` turns off this command or feature. */
+  protected isHidden(item: RteHideable): boolean {
+    return this.hidden().has(item);
+  }
+
+  /** Items that aren't hidden, without leading, trailing or doubled separators. */
+  private visibleItems(items: readonly RteToolbarItem[]): RteToolbarItem[] {
+    const visible: RteToolbarItem[] = [];
+    for (const item of items) {
+      if (item !== '|' ? !this.hidden().has(item) : visible.length && visible[visible.length - 1] !== '|') {
+        visible.push(item);
+      }
+    }
+    if (visible[visible.length - 1] === '|') visible.pop();
+    return visible;
+  }
+
+  protected iconContext(item: RteToolbarItem | 'openLink'): RteIconContext {
+    const color = COLOR_KINDS.has(item as RteCommand) ? this.lastColors()[item as RteColorKind] : null;
+    return { $implicit: item as RteCommand, active: item !== 'openLink' && this.isActive(item), color };
+  }
 
   protected isActive(item: RteToolbarItem): boolean {
     if (item === '|') return false;
@@ -797,6 +886,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   protected onBlur(): void {
     this.focused.set(false);
     this.onTouched();
+    this.control()?.markAsTouched();
     this.editorBlur.emit();
   }
 
@@ -807,7 +897,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     const html = data.getData('text/html');
     const images = imageFiles(data.files);
     if (images.length && !html) {
-      void this.insertImageFiles(images, null);
+      if (this.canDropImages()) void this.insertImageFiles(images, null);
       return;
     }
     if (html && !this.pastePlainText()) {
@@ -819,6 +909,13 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   protected onKeydown(event: KeyboardEvent): void {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+      const command = ({ b: 'bold', i: 'italic', u: 'underline', k: 'link' } as Record<string, RteCommand>)[event.key.toLowerCase()];
+      if (command && this.isHidden(command)) {
+        event.preventDefault(); // the native shortcut would bypass `hide`
+        return;
+      }
+    }
     if (event.key === 'Escape' && this.palette()) {
       this.palette.set(null);
       return;
@@ -869,6 +966,10 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   /** An image of the editor starts being dragged: dropping it in the editor moves it. */
   protected onDragStart(event: DragEvent): void {
     const target = event.target as Element;
+    if (target.localName === 'img' && this.isHidden('imageMove') && !this.isDisabled()) {
+      event.preventDefault();
+      return;
+    }
     this.draggedImage = target.localName === 'img' && !this.isDisabled() ? (target as HTMLImageElement) : null;
     if (this.draggedImage && event.dataTransfer) event.dataTransfer.effectAllowed = 'copyMove';
   }
@@ -886,8 +987,8 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (!event.dataTransfer?.types.includes('Files')) return;
     // without this the browser would open the file instead of dropping it in the editor
     event.preventDefault();
-    event.dataTransfer.dropEffect = this.isDisabled() ? 'none' : 'copy';
-    this.dropActive.set(!this.isDisabled());
+    event.dataTransfer.dropEffect = this.canDropImages() ? 'copy' : 'none';
+    this.dropActive.set(this.canDropImages());
   }
 
   protected onDragLeave(event: DragEvent): void {
@@ -909,8 +1010,13 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (!event.dataTransfer?.types.includes('Files')) return;
     event.preventDefault();
     const images = imageFiles(event.dataTransfer.files);
-    if (!images.length || this.isDisabled()) return;
+    if (!images.length || !this.canDropImages()) return;
     void this.insertImageFiles(images, this.rangeFromPoint(event.clientX, event.clientY));
+  }
+
+  /** Image files can be dropped / pasted: not read-only, and neither `image` nor `imageDrop` hidden. */
+  private canDropImages(): boolean {
+    return !this.isDisabled() && !this.isHidden('image') && !this.isHidden('imageDrop');
   }
 
   /** Turns the files into URLs (`imageUpload`) and inserts them, in one step, at `range` or the caret. */
@@ -944,7 +1050,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     const target = event.target as HTMLElement;
     if (this.isDisabled() || !this.editable().nativeElement.contains(target)) return;
     const link = this.closestInEditor('a', target);
-    if (link && (event.ctrlKey || event.metaKey)) {
+    if (link && (event.ctrlKey || event.metaKey) && !this.isHidden('linkOpen')) {
       event.preventDefault();
       this.openLink(link.getAttribute('href'));
       return;
@@ -961,7 +1067,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   /** Places the "open link" button at the end of the link holding the caret. */
   private updateLinkBubble(): void {
-    const link = this.closestInEditor('a');
+    const link = this.isHidden('linkOpen') ? null : this.closestInEditor('a');
     const href = link?.getAttribute('href');
     const rects = link?.getClientRects();
     if (!link || !href || !isSafeUrl(href) || !rects?.length) {
@@ -1219,7 +1325,9 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (!this.colGuide()) this.colResizeHover.set(!!this.resizeTarget(event));
     // pointer cursor on links while Ctrl / ⌘ is held: they can be followed
     const ctrl = event.ctrlKey || event.metaKey;
-    this.linkHover.set(ctrl && !this.isDisabled() && !!this.closestInEditor('a', event.target as Node));
+    this.linkHover.set(
+      ctrl && !this.isDisabled() && !this.isHidden('linkOpen') && !!this.closestInEditor('a', event.target as Node),
+    );
   }
 
   /**
@@ -1278,6 +1386,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   private startCellSelection(event: MouseEvent): void {
+    if (this.isHidden('cellSelection')) return;
     const cell = this.closestCell(event.target as Node);
     const table = cell?.closest('table');
     const current = this.cellSelection();
@@ -1409,7 +1518,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   private resizeTarget(
     event: MouseEvent,
   ): { table: HTMLTableElement; col: number; edge: 'left' | 'right' | 'inner' } | null {
-    if (this.isDisabled()) return null;
+    if (this.isDisabled() || this.isHidden('columnResize')) return null;
     const cell = (event.target as Element).closest?.('td, th') as HTMLTableCellElement | null;
     if (!cell || !this.editable().nativeElement.contains(cell)) return null;
     const table = cell.closest('table')!;
@@ -1427,7 +1536,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     const text = (event.target as HTMLTextAreaElement).value;
     // lastHtml is intentionally left untouched so the effect refreshes the (hidden) editor.
     this.value.set(text);
-    this.onChange(text);
+    this.emitChange(text);
   }
 
   // ------------------------------------------------------------ internals
@@ -1449,7 +1558,17 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (html === this.lastHtml) return;
     this.lastHtml = html;
     this.value.set(html);
+    this.emitChange(html);
+  }
+
+  /** Reports an edit to the forms API and to the `control` input. */
+  private emitChange(html: string): void {
     this.onChange(html);
+    const control = this.control();
+    if (control && control.value !== html) {
+      control.setValue(html);
+      control.markAsDirty();
+    }
   }
 
   private toggleSource(): void {
@@ -1548,10 +1667,13 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     const box = this.root().nativeElement.getBoundingClientRect();
     const content = this.editable().nativeElement.getBoundingClientRect();
     const rect = table.getBoundingClientRect();
+    // the bar's size depends on the theme (--nrte-btn-size…): measure it once it is shown
+    const bar = this.root().nativeElement.querySelector<HTMLElement>('.nrte__tablebar');
+    const height = bar?.offsetHeight || TABLE_BAR_HEIGHT;
     const min = content.top - box.top + 4;
-    let top = rect.top - box.top - TABLE_BAR_HEIGHT - 4;
+    let top = rect.top - box.top - height - 4;
     if (top < min) top = rect.bottom - box.top + 4;
-    top = Math.max(min, Math.min(top, box.height - TABLE_BAR_HEIGHT - 4));
+    top = Math.max(min, Math.min(top, box.height - height - 4));
     this.tableBar.set({ top, left: Math.max(4, rect.left - box.left) });
   }
 
@@ -1927,6 +2049,16 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (!list.children.length) list.remove();
   }
 
+  /** Images chosen in the file picker are inserted where the caret was. */
+  protected onImagesPicked(event: Event): void {
+    const picker = event.target as HTMLInputElement;
+    const images = imageFiles(picker.files);
+    picker.value = ''; // picking the same file again must fire `change` again
+    const range = this.pickerRange;
+    this.pickerRange = null;
+    if (images.length && !this.isDisabled()) void this.insertImageFiles(images, range);
+  }
+
   private async askUrl(kind: 'link' | 'image', current: string): Promise<string | null> {
     const range = this.savedRange?.cloneRange() ?? null;
     const result = await this.promptFn()(kind, current);
@@ -1968,7 +2100,14 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     }
   }
 
+  /** `image` button: opens the file picker, or asks for a URL with `imageSource: 'url'`. */
   private async insertImage(): Promise<void> {
+    if (this.imageSource() === 'file') {
+      // remember the caret: the file dialog takes the focus away
+      this.pickerRange = this.savedRange?.cloneRange() ?? null;
+      this.imagePicker().nativeElement.click();
+      return;
+    }
     const url = await this.askUrl('image', '');
     if (!url || !isSafeUrl(url, true)) return;
     this.exec('insertHTML', `<img src="${escapeHtml(url)}" alt="">`);

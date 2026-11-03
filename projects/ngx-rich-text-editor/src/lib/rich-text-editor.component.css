@@ -1,18 +1,34 @@
 /*
- * Theme with CSS custom properties on the host or any ancestor:
+ * Theme with CSS custom properties on the editor element (or a class on it):
  *   ngx-rich-text-editor { --nrte-accent: #e91e63; --nrte-radius: 0; }
+ * The defaults are declared with `:where()` (no specificity) so any rule of yours wins.
  */
-.nrte-host {
+:where(.nrte-host) {
   --nrte-font: inherit;
   --nrte-text: #1f2328;
   --nrte-muted: #8b949e;
   --nrte-bg: #ffffff;
-  --nrte-toolbar-bg: #f6f8fa;
   --nrte-border: #d0d7de;
   --nrte-accent: #3b6cf6;
   --nrte-accent-bg: rgba(59, 108, 246, 0.12);
   --nrte-radius: 8px;
   --nrte-code-bg: #f3f4f6;
+  /* toolbars (main toolbar and table bar) */
+  --nrte-toolbar-bg: #f6f8fa;
+  --nrte-toolbar-border: var(--nrte-border);
+  --nrte-toolbar-padding: 6px;
+  --nrte-toolbar-gap: 2px;
+  --nrte-btn-size: 30px;
+  --nrte-btn-radius: 6px;
+  --nrte-btn-color: inherit;
+  --nrte-btn-hover-bg: var(--nrte-accent-bg);
+  --nrte-btn-hover-color: var(--nrte-btn-color);
+  --nrte-btn-active-bg: var(--nrte-accent-bg);
+  --nrte-btn-active-color: var(--nrte-accent);
+  --nrte-btn-disabled-opacity: 0.4;
+  --nrte-icon-size: 18px;
+  --nrte-icon-stroke: 2;
+  --nrte-sep-color: var(--nrte-border);
   display: block;
 }
 
@@ -41,37 +57,38 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
-  padding: 6px;
+  gap: var(--nrte-toolbar-gap);
+  padding: var(--nrte-toolbar-padding);
   background: var(--nrte-toolbar-bg);
-  border-bottom: 1px solid var(--nrte-border);
+  border-bottom: 1px solid var(--nrte-toolbar-border);
 }
 
 .nrte__sep {
   width: 1px;
-  height: 20px;
+  height: calc(var(--nrte-btn-size) * 2 / 3);
   margin: 0 4px;
-  background: var(--nrte-border);
+  background: var(--nrte-sep-color);
 }
 
 .nrte__btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 30px;
-  height: 30px;
+  min-width: var(--nrte-btn-size);
+  height: var(--nrte-btn-size);
   padding: 0 6px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--nrte-btn-radius);
   background: transparent;
-  color: inherit;
+  color: var(--nrte-btn-color);
   font: inherit;
   cursor: pointer;
   line-height: 1;
 }
 
 .nrte__btn:hover:not(:disabled) {
-  background: var(--nrte-accent-bg);
+  background: var(--nrte-btn-hover-bg);
+  color: var(--nrte-btn-hover-color);
 }
 
 .nrte__btn:focus-visible {
@@ -79,14 +96,15 @@
   outline-offset: 1px;
 }
 
-.nrte__btn--active {
-  background: var(--nrte-accent-bg);
-  color: var(--nrte-accent);
+.nrte__btn--active,
+.nrte__btn--active:hover:not(:disabled) {
+  background: var(--nrte-btn-active-bg);
+  color: var(--nrte-btn-active-color);
 }
 
 .nrte__btn:disabled {
   cursor: default;
-  opacity: 0.4;
+  opacity: var(--nrte-btn-disabled-opacity);
 }
 
 .nrte__txt {
@@ -104,11 +122,11 @@
 }
 
 .nrte__icon {
-  width: 18px;
-  height: 18px;
+  width: var(--nrte-icon-size);
+  height: var(--nrte-icon-size);
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: var(--nrte-icon-stroke);
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -370,7 +388,7 @@
   z-index: 2;
   flex-wrap: nowrap;
   padding: 4px;
-  border: 1px solid var(--nrte-border);
+  border: 1px solid var(--nrte-toolbar-border);
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
