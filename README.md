@@ -24,6 +24,8 @@ Lightweight **rich text editor for Angular** that takes **HTML as input** and em
 
 **Links**
 - Insert / edit (<kbd>Ctrl/⌘ + K</kbd>) and remove links, optional `target="_blank"`
+- Follow a link in a new window: small button at the end of the link holding the caret, or
+  <kbd>Ctrl/⌘ + click</kbd>
 - Pluggable URL prompt (`promptFn`) to use your own dialog
 
 **Images**
@@ -143,6 +145,7 @@ toolbar: RteToolbarItem[] = ['bold', 'italic', '|', 'unorderedList', 'orderedLis
 ```
 
 Keyboard: <kbd>Ctrl/⌘ + B / I / U</kbd> (native), <kbd>Ctrl/⌘ + K</kbd> insert link,
+<kbd>Ctrl/⌘ + click</kbd> on a link opens it in a new window,
 <kbd>Tab</kbd> / <kbd>Shift + Tab</kbd> in a list nest / un-nest the item, in a table move to the
 next / previous cell (<kbd>Tab</kbd> in the last cell adds a row).
 

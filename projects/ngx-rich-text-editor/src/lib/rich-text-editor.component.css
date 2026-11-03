@@ -273,6 +273,45 @@
   pointer-events: none;
 }
 
+/* "Open link" button at the end of the link holding the caret */
+.nrte__link-open {
+  position: absolute;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--nrte-border);
+  border-radius: 4px;
+  background: var(--nrte-bg);
+  color: var(--nrte-accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+}
+
+.nrte__link-open:hover {
+  background: var(--nrte-accent);
+  border-color: var(--nrte-accent);
+  color: #fff;
+}
+
+.nrte__link-open svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Ctrl / ⌘ held over a link: it can be followed */
+.nrte__content--link-hover a {
+  cursor: pointer;
+}
+
 /* Selected image and its resize handles */
 .nrte__image-frame {
   position: absolute;

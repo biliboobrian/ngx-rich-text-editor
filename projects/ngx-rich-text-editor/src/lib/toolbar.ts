@@ -98,6 +98,8 @@ export type RteLabelKey =
   | 'colorNone'
   /** Tooltip of the image resize handles. */
   | 'imageResize'
+  /** Tooltip of the button opening the link under the caret in a new window. */
+  | 'openLink'
   /** Palette button opening the custom color picker. */
   | 'colorCustom'
   /** Table palettes: apply to the selected cells. */
@@ -206,6 +208,7 @@ export const RTE_DEFAULT_LABELS: Readonly<Record<RteLabelKey, string>> = {
   backgroundColor: 'Background color',
   colorNone: 'None',
   imageResize: 'Resize (double-click: original size)',
+  openLink: 'Open link in a new window (Ctrl+click)',
   colorCustom: 'Custom…',
   scopeSelection: 'Selection',
   scopeCell: 'Cell',
@@ -268,6 +271,7 @@ export const RTE_LABELS_FR: Readonly<Record<RteLabelKey, string>> = {
   backgroundColor: 'Couleur de fond',
   colorNone: 'Aucune',
   imageResize: 'Redimensionner (double-clic : taille d’origine)',
+  openLink: 'Ouvrir le lien dans une nouvelle fenêtre (Ctrl+clic)',
   colorCustom: 'Personnalisée…',
   scopeSelection: 'Sélection',
   scopeCell: 'Cellule',

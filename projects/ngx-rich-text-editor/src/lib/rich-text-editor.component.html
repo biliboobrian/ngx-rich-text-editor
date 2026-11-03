@@ -186,6 +186,7 @@
     class="nrte__content"
     [class.nrte__content--empty]="isEmpty()"
     [class.nrte__content--col-resize]="colResizeHover() || !!colGuide()"
+    [class.nrte__content--link-hover]="linkHover()"
     [class.nrte__content--cell-select]="cellSelecting()"
     [class.nrte__content--drop]="dropActive()"
     [class.nrte__hidden]="sourceMode()"
@@ -214,6 +215,23 @@
     (dblclick)="onContentDblClick($event)"
     (click)="onContentClick($event)"
   ></div>
+
+  @if (focused() && linkBubble(); as link) {
+    <button
+      type="button"
+      class="nrte__link-open"
+      [style.top.px]="link.top"
+      [style.left.px]="link.left"
+      [title]="titles().openLink + '\n' + link.href"
+      [attr.aria-label]="titles().openLink"
+      (mousedown)="$event.preventDefault()"
+      (click)="openLink(link.href)"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <svg:path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+      </svg>
+    </button>
+  }
 
   @if (focused() && imageFrame(); as frame) {
     <div

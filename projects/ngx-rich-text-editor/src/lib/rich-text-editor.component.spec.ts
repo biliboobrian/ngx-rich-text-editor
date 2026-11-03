@@ -310,6 +310,90 @@ describe('RichTextEditorComponent', () => {
     });
   });
 
+  describe('following links', () => {
+    let open: jasmine.Spy;
+    const bubble = () => el.querySelector<HTMLButtonElement>('.nrte__link-open');
+
+    beforeEach(async () => {
+      await setup();
+      open = spyOn(window, 'open');
+    });
+
+    it('shows an "open" button at the end of the link holding the caret', async () => {
+      await edit('<p>before <a href="https://example.com">link</a> after</p>', 'a', true);
+      const button = bubble()!;
+      expect(button).not.toBeNull();
+      expect(button.title).toContain('https://example.com');
+      const link = content.querySelector('a')!.getBoundingClientRect();
+      const rect = button.getBoundingClientRect();
+      expect(rect.left).toBeGreaterThanOrEqual(link.right);
+      expect(rect.left - link.right).toBeLessThan(5);
+    });
+
+    it('opens the link in a new window, without access to the page', async () => {
+      await edit('<p><a href="https://example.com">link</a></p>', 'a', true);
+      bubble()!.click();
+      expect(open).toHaveBeenCalledOnceWith('https://example.com', '_blank', 'noopener,noreferrer');
+    });
+
+    it('hides the button when the caret leaves the link', async () => {
+      await edit('<p>before <a href="https://example.com">link</a></p>', 'a', true);
+      caret(content.querySelector('p')!.firstChild!, 1);
+      await settle(fixture);
+      expect(bubble()).toBeNull();
+    });
+
+    it('has no button for unsafe or missing URLs', async () => {
+      fixture.componentRef.setInput('sanitize', false);
+      await edit('<p><a href="javascript:alert(1)">bad</a> <a>none</a></p>', 'a', true);
+      expect(bubble()).toBeNull();
+      mouse(content.querySelector('a')!, 'click', { ctrlKey: true });
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it('Ctrl+click and ⌘+click open the link', async () => {
+      await edit('<p><a href="/page">link</a></p>');
+      const link = content.querySelector('a')!;
+      mouse(link, 'click', { ctrlKey: true });
+      mouse(link.firstChild!.parentElement!, 'click', { metaKey: true });
+      expect(open).toHaveBeenCalledTimes(2);
+      expect(open).toHaveBeenCalledWith('/page', '_blank', 'noopener,noreferrer');
+    });
+
+    it('a plain click does not open the link', async () => {
+      await edit('<p><a href="/page">link</a></p>');
+      mouse(content.querySelector('a')!, 'click');
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it('shows a pointer cursor over links while Ctrl is held', async () => {
+      await edit('<p><a href="/page">link</a> text</p>');
+      mouse(content.querySelector('a')!, 'mousemove', { ctrlKey: true });
+      await settle(fixture);
+      expect(content.classList).toContain('nrte__content--link-hover');
+      mouse(content.querySelector('a')!, 'mousemove');
+      await settle(fixture);
+      expect(content.classList).not.toContain('nrte__content--link-hover');
+    });
+
+    it('leaves links to the browser in read-only mode', async () => {
+      fixture.componentRef.setInput('readonly', true);
+      await edit('<p><a href="/page">link</a></p>');
+      // not editable: the browser follows the link itself; block the real navigation
+      let preventedByEditor: boolean | undefined;
+      const block = (e: Event) => {
+        preventedByEditor = e.defaultPrevented;
+        e.preventDefault();
+      };
+      window.addEventListener('click', block);
+      mouse(content.querySelector('a')!, 'click', { ctrlKey: true });
+      window.removeEventListener('click', block);
+      expect(preventedByEditor).toBeFalse();
+      expect(open).not.toHaveBeenCalled();
+      expect(bubble()).toBeNull();
+    });
+  });
+
   describe('paste', () => {
     function paste(data: Record<string, string>, files: File[] = []): void {
       const transfer = new DataTransfer();

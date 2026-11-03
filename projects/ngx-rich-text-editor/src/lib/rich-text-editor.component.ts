@@ -151,6 +151,9 @@ const BORDER_WIDTHS = [0, 1, 2, 3];
 /** Narrowest width a column can be dragged to (px). */
 const MIN_COL_WIDTH = 30;
 
+/** Size of the "open link" button (px). */
+const LINK_BUBBLE_SIZE = 20;
+
 /** Narrowest width an image can be resized to (px). */
 const MIN_IMAGE_WIDTH = 16;
 
@@ -455,6 +458,10 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   protected readonly borderColor = signal<string | null>(null);
   /** Pointer over a column border: shows the resize cursor. */
   protected readonly colResizeHover = signal(false);
+  /** Button opening the link that holds the caret, placed at the end of the link. */
+  protected readonly linkBubble = signal<{ href: string; top: number; left: number } | null>(null);
+  /** Pointer over a link with Ctrl / ⌘ held. */
+  protected readonly linkHover = signal(false);
   /** Vertical guide shown while a column border is dragged. */
   protected readonly colGuide = signal<{ left: number; top: number; height: number } | null>(null);
   /** Image selected by a click, shown with resize handles. */
@@ -929,11 +936,51 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   // -------------------------------------------------------- image resizing
 
-  /** A click on an image selects it (so Delete / Ctrl+C act on it) and shows its resize handles. */
+  /**
+   * Ctrl/⌘ + click on a link opens it in a new window. A click on an image selects it (so Delete /
+   * Ctrl+C act on it) and shows its resize handles.
+   */
   protected onContentClick(event: MouseEvent): void {
-    const img = event.target as HTMLElement;
-    if (img.localName !== 'img' || this.isDisabled() || !this.editable().nativeElement.contains(img)) return;
-    this.selectImage(img as HTMLImageElement);
+    const target = event.target as HTMLElement;
+    if (this.isDisabled() || !this.editable().nativeElement.contains(target)) return;
+    const link = this.closestInEditor('a', target);
+    if (link && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      this.openLink(link.getAttribute('href'));
+      return;
+    }
+    if (target.localName === 'img') this.selectImage(target as HTMLImageElement);
+  }
+
+  // ------------------------------------------------------------------ links
+
+  /** Opens a (safe) URL in a new window, without giving it access to this page. */
+  protected openLink(href: string | null | undefined): void {
+    if (href && isSafeUrl(href)) this.doc.defaultView?.open(href, '_blank', 'noopener,noreferrer');
+  }
+
+  /** Places the "open link" button at the end of the link holding the caret. */
+  private updateLinkBubble(): void {
+    const link = this.closestInEditor('a');
+    const href = link?.getAttribute('href');
+    const rects = link?.getClientRects();
+    if (!link || !href || !isSafeUrl(href) || !rects?.length) {
+      this.linkBubble.set(null);
+      return;
+    }
+    const box = this.root().nativeElement.getBoundingClientRect();
+    const content = this.editable().nativeElement.getBoundingClientRect();
+    const end = rects[rects.length - 1];
+    if (end.bottom < content.top || end.top > content.bottom) {
+      this.linkBubble.set(null);
+      return;
+    }
+    // right after the end of the link, vertically centered on its last line
+    this.linkBubble.set({
+      href,
+      top: end.top - box.top + end.height / 2 - LINK_BUBBLE_SIZE / 2,
+      left: Math.min(end.right - box.left + 2, box.width - LINK_BUBBLE_SIZE - 2),
+    });
   }
 
   private selectImage(img: HTMLImageElement): void {
@@ -1170,6 +1217,9 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   protected onContentMouseMove(event: MouseEvent): void {
     if (!this.colGuide()) this.colResizeHover.set(!!this.resizeTarget(event));
+    // pointer cursor on links while Ctrl / ⌘ is held: they can be followed
+    const ctrl = event.ctrlKey || event.metaKey;
+    this.linkHover.set(ctrl && !this.isDisabled() && !!this.closestInEditor('a', event.target as Node));
   }
 
   /**
@@ -1489,6 +1539,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   protected updateTableBar(): void {
     this.updateCellOverlay();
     this.updateImageFrame();
+    this.updateLinkBubble();
     const table = this.closestCell()?.closest('table');
     if (!table) {
       this.tableBar.set(null);
