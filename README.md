@@ -31,6 +31,7 @@ Lightweight **rich text editor for Angular** that takes **HTML as input** and em
 - Drag and drop from the desktop, paste from the clipboard (e.g. screenshots)
 - Pluggable upload (`imageUpload`), data URLs by default
 - Resize with corner handles (proportional, live size, double-click for the original size)
+- Move an image by dragging it elsewhere in the text (<kbd>Ctrl</kbd> / <kbd>⌥</kbd> while dropping: copy)
 
 **Tables**
 - Insert a 3×3 table, floating bar to add / delete rows and columns or the table
@@ -185,6 +186,9 @@ Click an image to select it: drag one of its corner handles to **resize** it (pr
 kept, the size is shown while dragging, and the image can't get wider than its block). The size is
 stored as a `width` attribute; double-click a handle to go back to the original size. Resizing can
 be undone.
+
+Drag an image to another place in the editor to **move** it (hold <kbd>Ctrl</kbd>, or <kbd>⌥</kbd> on
+macOS, while dropping to copy it instead). The move can be undone in one step.
 
 `textColor` / `backgroundColor` open a palette (plus "none" and a custom color picker) and
 produce `<span style="color: …">` / `<span style="background-color: …">`. Change the swatches with

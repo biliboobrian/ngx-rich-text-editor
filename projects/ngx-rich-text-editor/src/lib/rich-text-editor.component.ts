@@ -269,6 +269,11 @@ function imageFiles(list: FileList | null | undefined): File[] {
   return Array.from(list ?? []).filter((file) => file.type.startsWith('image/'));
 }
 
+/** Ctrl (Windows / Linux) or Option (macOS) held while dropping: copy instead of move. */
+function isCopyDrop(event: DragEvent): boolean {
+  return event.ctrlKey || event.altKey;
+}
+
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
@@ -471,6 +476,8 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   /** Set while the editor rewrites a table itself (its input events don't end a cell selection). */
   private internalEdit = false;
   private savedRange: Range | null = null;
+  /** Image of the editor being dragged (dropping it in the editor moves it). */
+  private draggedImage: HTMLImageElement | null = null;
   private onChange: (value: string) => void = () => {};
   private onTouched: () => void = () => {};
 
@@ -852,7 +859,23 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   // ------------------------------------------------------------ image drop
 
+  /** An image of the editor starts being dragged: dropping it in the editor moves it. */
+  protected onDragStart(event: DragEvent): void {
+    const target = event.target as Element;
+    this.draggedImage = target.localName === 'img' && !this.isDisabled() ? (target as HTMLImageElement) : null;
+    if (this.draggedImage && event.dataTransfer) event.dataTransfer.effectAllowed = 'copyMove';
+  }
+
+  protected onDragEnd(): void {
+    this.draggedImage = null;
+  }
+
   protected onDragOver(event: DragEvent): void {
+    if (this.draggedImage?.isConnected) {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = isCopyDrop(event) ? 'copy' : 'move';
+      return;
+    }
     if (!event.dataTransfer?.types.includes('Files')) return;
     // without this the browser would open the file instead of dropping it in the editor
     event.preventDefault();
@@ -867,6 +890,15 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   /** Dropped image files are inserted where they are dropped. */
   protected onDrop(event: DragEvent): void {
     this.dropActive.set(false);
+    const dragged = this.draggedImage;
+    this.draggedImage = null;
+    if (dragged?.isConnected) {
+      // Chrome also exposes the dragged image as a file: don't insert it as a new upload
+      event.preventDefault();
+      const range = this.rangeFromPoint(event.clientX, event.clientY);
+      if (range) this.moveImage(dragged, range, isCopyDrop(event));
+      return;
+    }
     if (!event.dataTransfer?.types.includes('Files')) return;
     event.preventDefault();
     const images = imageFiles(event.dataTransfer.files);
@@ -1037,6 +1069,83 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     const next = Array.from(el.querySelectorAll('img')).find((i) => !existing.has(i));
     if (next) this.selectImage(next);
     else this.updateImageFrame();
+    this.syncFromEditor();
+  }
+
+  /**
+   * Moves (or copies) an image of the editor to `range`. The top-level blocks from the image to the
+   * drop point are rewritten with one `insertHTML`, so the move is a single undo step.
+   */
+  private moveImage(img: HTMLImageElement, range: Range, copy: boolean): void {
+    const el = this.editable().nativeElement;
+    const { startContainer: container, startOffset: offset } = range;
+    if (img.contains(container)) return;
+    // dropped right before or after itself
+    const index = Array.prototype.indexOf.call(img.parentNode!.childNodes, img);
+    if (!copy && container === img.parentNode && (offset === index || offset === index + 1)) return;
+
+    const topOf = (node: Node) => {
+      let n = node;
+      while (n.parentNode !== el) n = n.parentNode!;
+      return n;
+    };
+    const children = Array.from(el.childNodes);
+    const ends = [children.indexOf(topOf(img) as ChildNode), container === el ? -1 : children.indexOf(topOf(container) as ChildNode)];
+    if (container === el) {
+      // between two blocks: the image goes in a new paragraph there
+      ends[1] = Math.min(offset, children.length - 1);
+    }
+    const [from, to] = [Math.min(...ends), Math.max(...ends)];
+    const blocks = children.slice(from, to + 1);
+    const imagesBefore = children.slice(0, from).reduce(
+      (count, n) => count + (n.nodeName === 'IMG' ? 1 : n.nodeType === 1 ? (n as Element).querySelectorAll('img').length : 0),
+      0,
+    );
+
+    // apply the move on copies of the blocks
+    const wrapper = this.doc.createElement('div');
+    wrapper.append(...blocks.map((b) => b.cloneNode(true)));
+    const at = (node: Node) => resolvePath(wrapper, [blocks.indexOf(topOf(node) as ChildNode), ...pathOf(node, topOf(node))]);
+    const source = at(img) as HTMLImageElement;
+    const moved = img.cloneNode() as HTMLImageElement;
+    if (container === el) {
+      const p = this.doc.createElement('p');
+      p.append(moved);
+      if (offset >= children.length) wrapper.append(p);
+      else at(children[offset]).parentNode!.insertBefore(p, at(children[offset]));
+    } else {
+      const target = at(container);
+      if (target.nodeType === Node.TEXT_NODE) {
+        const rest = (target as Text).splitText(offset);
+        rest.parentNode!.insertBefore(moved, rest);
+      } else {
+        target.insertBefore(moved, target.childNodes[offset] ?? null);
+      }
+    }
+    if (!copy) {
+      const parent = source.parentNode!;
+      source.remove();
+      // keep a paragraph emptied by the move editable
+      if (parent !== wrapper && parent.nodeType === 1 && !parent.childNodes.length) (parent as Element).innerHTML = '<br>';
+    }
+    const movedIndex = imagesBefore + Array.from(wrapper.querySelectorAll('img')).indexOf(moved);
+
+    el.focus();
+    const replaced = this.doc.createRange();
+    replaced.setStartBefore(blocks[0]);
+    const last = blocks[blocks.length - 1];
+    // end inside the last block (see replaceNode)
+    if (last.nodeType === Node.TEXT_NODE) replaced.setEnd(last, (last as Text).length);
+    else if (last.nodeName === 'IMG' || last.nodeName === 'HR') replaced.setEndAfter(last);
+    else replaced.setEnd(last, last.childNodes.length);
+    const sel = this.doc.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(replaced);
+    const html = Array.from(wrapper.childNodes, (n) => (n.nodeType === 1 ? (n as Element).outerHTML : escapeHtml(n.textContent ?? ''))).join('');
+    this.doc.execCommand('insertHTML', false, html);
+
+    const result = el.querySelectorAll('img')[movedIndex];
+    if (result) this.selectImage(result);
     this.syncFromEditor();
   }
 

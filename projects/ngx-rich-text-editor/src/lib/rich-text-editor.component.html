@@ -200,6 +200,8 @@
     spellcheck="true"
     (input)="onInput($event)"
     (paste)="onPaste($event)"
+    (dragstart)="onDragStart($event)"
+    (dragend)="onDragEnd()"
     (dragover)="onDragOver($event)"
     (dragleave)="onDragLeave($event)"
     (drop)="onDrop($event)"

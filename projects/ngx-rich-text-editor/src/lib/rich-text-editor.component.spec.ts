@@ -434,6 +434,99 @@ describe('RichTextEditorComponent', () => {
     });
   });
 
+  describe('moving an image by drag and drop', () => {
+    const src = pngDataUrl(20, 20);
+    let imageUpload: jasmine.Spy;
+    const html = () => editor.value().split(src).join('S');
+
+    beforeEach(async () => {
+      imageUpload = jasmine.createSpy('imageUpload').and.resolveTo('https://cdn.test/copy.png');
+      await setup({ imageUpload });
+    });
+
+    /** Viewport point over the left half of character `offset` of `text`: the caret goes before it. */
+    function pointAt(text: Node, offset: number): { clientX: number; clientY: number } {
+      const range = document.createRange();
+      range.setStart(text, offset);
+      range.setEnd(text, offset + 1);
+      const rect = range.getBoundingClientRect();
+      return { clientX: rect.left + 1, clientY: rect.top + rect.height / 2 };
+    }
+
+    /** Drags the editor's image and drops it at `point`, like Chrome (which also exposes it as a file). */
+    async function dragImage(point: { clientX: number; clientY: number }, init: DragEventInit = {}): Promise<void> {
+      const img = content.querySelector('img')!;
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['x'], 'image.png', { type: 'image/png' }));
+      const fire = (target: EventTarget, type: string) =>
+        target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer, ...point, ...init }));
+      fire(img, 'dragstart');
+      const over = document.elementFromPoint(point.clientX, point.clientY)!;
+      expect(fire(over, 'dragover')).withContext('dragover is accepted').toBeFalse();
+      fire(over, 'drop');
+      fire(img, 'dragend');
+      await settle(fixture);
+    }
+
+    it('moves the image inside its paragraph', async () => {
+      await edit(`<p>ab<img src="${src}">cd</p>`);
+      await dragImage(pointAt(content.querySelector('p')!.firstChild!, 0));
+      expect(html()).toBe('<p><img src="S">abcd</p>');
+      expect(imageUpload).not.toHaveBeenCalled();
+    });
+
+    it('moves the image to another paragraph', async () => {
+      await edit(`<p>ab<img src="${src}"></p><p>cd</p>`);
+      await dragImage(pointAt(content.querySelectorAll('p')[1].firstChild!, 1));
+      expect(html()).toBe('<p>ab</p><p>c<img src="S">d</p>');
+    });
+
+    it('keeps an emptied paragraph editable', async () => {
+      await edit(`<p><img src="${src}"></p><p>cd</p>`);
+      await dragImage(pointAt(content.querySelectorAll('p')[1].firstChild!, 1));
+      expect(html()).toBe('<p><br></p><p>c<img src="S">d</p>');
+    });
+
+    it('moves the image into a table cell and keeps its attributes', async () => {
+      await edit(`<p>ab<img src="${src}" width="10" alt="x"></p><table><tbody><tr><td>cd</td></tr></tbody></table>`);
+      await dragImage(pointAt(content.querySelector('td')!.firstChild!, 1));
+      expect(html()).toBe('<p>ab</p><table><tbody><tr><td>c<img src="S" width="10" alt="x">d</td></tr></tbody></table>');
+    });
+
+    it('copies the image when Ctrl is held', async () => {
+      await edit(`<p>ab<img src="${src}">cd</p>`);
+      await dragImage(pointAt(content.querySelector('p')!.firstChild!, 0), { ctrlKey: true });
+      expect(html()).toBe('<p><img src="S">ab<img src="S">cd</p>');
+      expect(imageUpload).not.toHaveBeenCalled();
+    });
+
+    it('selects the moved image', async () => {
+      await edit(`<p>ab<img src="${src}">cd</p>`);
+      await dragImage(pointAt(content.querySelector('p')!.firstChild!, 0));
+      expect(el.querySelector('.nrte__image-frame')).not.toBeNull();
+      expect(document.getSelection()!.getRangeAt(0).cloneContents().firstChild?.nodeName).toBe('IMG');
+    });
+
+    it('is undone in one step', async () => {
+      await edit(`<p>ab<img src="${src}"></p><p>cd</p>`);
+      await dragImage(pointAt(content.querySelectorAll('p')[1].firstChild!, 1));
+      document.execCommand('undo');
+      await settle(fixture);
+      expect(html()).toBe('<p>ab<img src="S"></p><p>cd</p>');
+    });
+
+    it('still uploads image files dropped from outside', async () => {
+      await edit('<p>ab</p>');
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['x'], 'photo.png', { type: 'image/png' }));
+      const point = pointAt(content.querySelector('p')!.firstChild!, 1);
+      content.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, ...point }));
+      await settle(fixture);
+      expect(imageUpload).toHaveBeenCalled();
+      expect(editor.value()).toBe('<p>a<img src="https://cdn.test/copy.png" alt="">b</p>');
+    });
+  });
+
   describe('tables', () => {
     const rows = () => Array.from(content.querySelector('table')?.rows ?? []);
 
