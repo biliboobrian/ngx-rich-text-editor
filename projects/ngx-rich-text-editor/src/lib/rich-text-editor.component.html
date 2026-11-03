@@ -210,7 +210,31 @@
     (mousemove)="onContentMouseMove($event)"
     (mousedown)="onContentMouseDown($event)"
     (dblclick)="onContentDblClick($event)"
+    (click)="onContentClick($event)"
   ></div>
+
+  @if (focused() && imageFrame(); as frame) {
+    <div
+      class="nrte__image-frame"
+      [style.top.px]="frame.top"
+      [style.left.px]="frame.left"
+      [style.width.px]="frame.width"
+      [style.height.px]="frame.height"
+    >
+      @for (corner of imageCorners; track corner) {
+        <span
+          class="nrte__image-handle"
+          [attr.data-corner]="corner"
+          [title]="titles().imageResize"
+          (mousedown)="onImageHandleDown($event, corner)"
+          (dblclick)="resetImageSize()"
+        ></span>
+      }
+      @if (frame.label) {
+        <span class="nrte__image-size">{{ frame.label }}</span>
+      }
+    </div>
+  }
 
   @if (cellOverlay(); as overlay) {
     <div

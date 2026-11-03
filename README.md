@@ -139,6 +139,11 @@ upload: RteImageUploadFn = async (file) => {
 <ngx-rich-text-editor [(value)]="html" [imageUpload]="upload" />
 ```
 
+Click an image to select it: drag one of its corner handles to **resize** it (proportions are
+kept, the size is shown while dragging, and the image can't get wider than its block). The size is
+stored as a `width` attribute; double-click a handle to go back to the original size. Resizing can
+be undone.
+
 `textColor` / `backgroundColor` open a palette (plus "none" and a custom color picker) and
 produce `<span style="color: …">` / `<span style="background-color: …">`. Change the swatches with
 the `textColors` / `backgroundColors` inputs (defaults: `RTE_TEXT_COLORS`, `RTE_BACKGROUND_COLORS`),

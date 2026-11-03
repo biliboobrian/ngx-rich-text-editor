@@ -77,10 +77,22 @@ const TABLE_COMMANDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
 /** Height of the floating table bar, used to place it above the table. */
 const TABLE_BAR_HEIGHT = 38;
 
-/** What a color applies to: the selected text, or the cells of a table. */
+/**
+ * What a color applies to (see {@link RichTextEditorComponent.setColor}):
+ * - `textColor`: color of the selected text (`<span style="color: …">`);
+ * - `backgroundColor`: highlight of the selected text (`<span style="background-color: …">`);
+ * - `tableTextColor`: text color of table cells (`<td style="color: …">`);
+ * - `tableBackground`: background of table cells (`<td style="background-color: …">`).
+ */
 export type RteColorKind = 'textColor' | 'backgroundColor' | 'tableTextColor' | 'tableBackground';
 
-/** Cells affected by a table color: the selected cells, the cell holding the caret, its row or its column. */
+/**
+ * Cells affected by a table color:
+ * - `selection`: the rectangle of selected cells (falls back to `cell` when nothing is selected);
+ * - `cell`: the cell holding the caret;
+ * - `row`: every cell of the caret's row;
+ * - `column`: every cell of the caret's column.
+ */
 export type RteTableScope = 'selection' | 'cell' | 'row' | 'column';
 
 const COLOR_KINDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
@@ -92,10 +104,15 @@ const COLOR_KINDS: ReadonlySet<RteCommand> = new Set<RteCommand>([
  * between the selected cells.
  */
 export interface RteBorderSides {
+  /** Top edge of the selected cells (or of the table). */
   top: boolean;
+  /** Bottom edge of the selected cells (or of the table). */
   bottom: boolean;
+  /** Left edge of the selected cells (or of the table). */
   left: boolean;
+  /** Right edge of the selected cells (or of the table). */
   right: boolean;
+  /** Horizontal and vertical lines between the selected cells. */
   inner: boolean;
 }
 
@@ -133,6 +150,12 @@ const BORDER_WIDTHS = [0, 1, 2, 3];
 
 /** Narrowest width a column can be dragged to (px). */
 const MIN_COL_WIDTH = 30;
+
+/** Narrowest width an image can be resized to (px). */
+const MIN_IMAGE_WIDTH = 16;
+
+/** Resize handles of a selected image: north-west, north-east, south-west and south-east corners. */
+export type RteImageCorner = 'nw' | 'ne' | 'sw' | 'se';
 
 const STATE_COMMANDS: RteCommand[] = [
   'bold', 'italic', 'underline', 'strikeThrough', 'subscript', 'superscript',
@@ -253,9 +276,16 @@ function escapeHtml(text: string): string {
 /**
  * Rich text editor that takes HTML as input and emits HTML.
  *
+ * Works with a two-way binding (`[(value)]`), `ngModel` or reactive forms (it is a
+ * `ControlValueAccessor`). Incoming and pasted HTML is sanitized (see {@link sanitizeHtml}).
+ *
+ * Theme it with CSS custom properties on the host (`--nrte-accent`, `--nrte-border`,
+ * `--nrte-radius`…).
+ *
+ * @example
  * ```html
  * <ngx-rich-text-editor [(value)]="html" placeholder="Write something…" />
- * <ngx-rich-text-editor formControlName="body" />
+ * <ngx-rich-text-editor formControlName="body" [labels]="frLabels" />
  * ```
  */
 @Component({
@@ -274,47 +304,105 @@ function escapeHtml(text: string): string {
   host: { class: 'nrte-host' },
 })
 export class RichTextEditorComponent implements ControlValueAccessor {
-  /** HTML content. Supports two-way binding: `[(value)]="html"`. */
+  /**
+   * HTML content of the editor. Supports two-way binding: `[(value)]="html"`.
+   * An empty editor emits `''`.
+   * @default ''
+   */
   readonly value = model<string>('');
-  /** Text shown when the editor is empty. */
+  /**
+   * Text shown while the editor is empty.
+   * @default ''
+   */
   readonly placeholder = input<string>('');
-  /** Toolbar layout. Use `'|'` for separators. */
+  /**
+   * Buttons of the main toolbar, in order. Use `'|'` for separators.
+   * @default RTE_DEFAULT_TOOLBAR
+   * @example [toolbar]="['bold', 'italic', '|', 'link', 'image']"
+   */
   readonly toolbar = input<readonly RteToolbarItem[]>(RTE_DEFAULT_TOOLBAR);
-  /** Hide the toolbar entirely. */
+  /**
+   * Hides the main toolbar (keyboard shortcuts and the public methods still work).
+   * @default false
+   */
   readonly hideToolbar = input(false, { transform: booleanAttribute });
-  /** Read-only mode (also set automatically by a disabled form control). */
+  /**
+   * Read-only mode: the content can't be edited and the toolbar is disabled.
+   * Also set automatically when the bound form control is disabled.
+   * @default false
+   */
   readonly readonly = input(false, { transform: booleanAttribute });
-  /** Tooltip overrides, e.g. `RTE_LABELS_FR`. */
+  /**
+   * Overrides of the tooltips and popup texts, merged over {@link RTE_DEFAULT_LABELS}.
+   * Pass {@link RTE_LABELS_FR} for French.
+   * @default {}
+   * @example [labels]="{ bold: 'Fett', italic: 'Kursiv' }"
+   */
   readonly labels = input<Partial<Record<RteLabelKey, string>>>({});
-  /** Swatches of the text color palette. */
+  /**
+   * Swatches of the text color palettes (`textColor`, `tableTextColor`) and of the borders popup.
+   * Any CSS color.
+   * @default RTE_TEXT_COLORS
+   */
   readonly textColors = input<readonly string[]>(RTE_TEXT_COLORS);
-  /** Swatches of the background color palette. */
+  /**
+   * Swatches of the background color palettes (`backgroundColor`, `tableBackground`). Any CSS color.
+   * @default RTE_BACKGROUND_COLORS
+   */
   readonly backgroundColors = input<readonly string[]>(RTE_BACKGROUND_COLORS);
-  /** Sanitize incoming / pasted HTML (strongly recommended). */
+  /**
+   * Sanitizes the incoming value, pasted HTML and {@link insertHtml} (strongly recommended:
+   * disable it only for fully trusted content).
+   * @default true
+   */
   readonly sanitize = input(true, { transform: booleanAttribute });
-  /** Options passed to the sanitizer (extra tags, attributes, styles…). */
+  /**
+   * Options of the sanitizer: extra tags, attributes or styles to keep, keep classes…
+   * @default {}
+   * @example [sanitizeOptions]="{ allowedStyles: ['font-size'], keepClasses: true }"
+   */
   readonly sanitizeOptions = input<RteSanitizeOptions>({});
-  /** Paste clipboard content as plain text instead of HTML. */
+  /**
+   * Pastes clipboard content as plain text, dropping its formatting.
+   * @default false
+   */
   readonly pastePlainText = input(false, { transform: booleanAttribute });
-  /** Open inserted links in a new tab. */
+  /**
+   * Inserted links open in a new tab (`target="_blank" rel="noopener noreferrer"`).
+   * @default false
+   */
   readonly linkTargetBlank = input(false, { transform: booleanAttribute });
-  /** Custom URL prompt for links/images (e.g. open your own dialog). Defaults to `window.prompt`. */
+  /**
+   * Asks the user for the URL of a link or an image, e.g. by opening your own dialog. May return a
+   * Promise; `null` / `undefined` cancels, `''` removes an existing link.
+   * @default `window.prompt`
+   */
   readonly promptFn = input<RtePromptFn>(defaultPrompt);
   /**
-   * Handles image files dropped or pasted in the editor: return the URL to use (e.g. after an
-   * upload). Defaults to embedding the image as a data URL.
+   * Handles image files dropped or pasted in the editor: return the URL to use as `src` (e.g. after
+   * an upload). Throw or reject to skip a file.
+   * @default embeds the image as a `data:` URL
    */
   readonly imageUpload = input<RteImageUploadFn>(readAsDataUrl);
-  /** Minimum height of the editable area (any CSS length). */
+  /**
+   * Minimum height of the editable area (any CSS length).
+   * @default '160px'
+   */
   readonly minHeight = input<string>('160px');
-  /** Maximum height of the editable area before it scrolls. */
+  /**
+   * Maximum height of the editable area before it scrolls (any CSS length); `null`: grows freely.
+   * @default null
+   */
   readonly maxHeight = input<string | null>(null);
-  /** Accessible label of the editable area. */
+  /**
+   * Accessible label (`aria-label`) of the editable area.
+   * @default 'Rich text editor'
+   */
   readonly ariaLabel = input<string>('Rich text editor');
 
   /** Emitted when the editable area gains focus. */
   readonly editorFocus = output<void>();
-  /** Emitted when the editable area loses focus. */
+  /** Emitted when the editable area (or the HTML source textarea) loses focus. */
   readonly editorBlur = output<void>();
 
   protected readonly root = viewChild.required<ElementRef<HTMLDivElement>>('root');
@@ -364,6 +452,11 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   protected readonly colResizeHover = signal(false);
   /** Vertical guide shown while a column border is dragged. */
   protected readonly colGuide = signal<{ left: number; top: number; height: number } | null>(null);
+  /** Image selected by a click, shown with resize handles. */
+  private readonly selectedImage = signal<HTMLImageElement | null>(null);
+  /** Frame drawn around the selected image; `label` shows the size while resizing. */
+  protected readonly imageFrame = signal<{ top: number; left: number; width: number; height: number; label?: string } | null>(null);
+  protected readonly imageCorners: readonly RteImageCorner[] = ['nw', 'ne', 'sw', 'se'];
   private readonly formDisabled = signal(false);
 
   protected readonly isDisabled = computed(() => this.readonly() || this.formDisabled());
@@ -389,12 +482,16 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       if (!this.isBrowser || html === this.lastHtml) return;
       this.lastHtml = html;
       el.innerHTML = this.clean(html);
+      this.selectedImage.set(null);
+      this.imageFrame.set(null);
     });
 
     afterNextRender(() => {
       try {
         this.doc.execCommand('defaultParagraphSeparator', false, 'p');
         this.doc.execCommand('styleWithCSS', false, 'false');
+        // Firefox's own image handles would compete with ours
+        this.doc.execCommand('enableObjectResizing', false, 'false');
       } catch {
         /* not supported: ignore */
       }
@@ -422,12 +519,21 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     this.editable().nativeElement.focus();
   }
 
-  /** Returns the current HTML. */
+  /**
+   * Returns the current HTML, the same as {@link value}.
+   * @returns the HTML of the editor, `''` when it is empty
+   */
   getHtml(): string {
     return this.value() ?? '';
   }
 
-  /** Inserts (sanitized) HTML at the caret position. */
+  /**
+   * Inserts HTML at the caret position (or at the end if the editor never had the focus),
+   * replacing the selected content. The HTML is sanitized unless {@link sanitize} is off.
+   * The insertion can be undone.
+   * @param html the HTML to insert
+   * @example editor.insertHtml('<p>Hello <b>world</b></p>');
+   */
   insertHtml(html: string): void {
     this.restoreSelection();
     this.doc.execCommand('insertHTML', false, this.clean(html));
@@ -437,6 +543,13 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   /**
    * Applies a color; `null` removes it. `textColor` / `backgroundColor` color the selected text,
    * `tableTextColor` / `tableBackground` the cells of the table holding the caret (`scope`).
+   * While cells are selected, the text colors apply to the selected cells.
+   * @param kind  what to color
+   * @param color any CSS color, or `null` to remove the color
+   * @param scope cells colored by the table kinds; defaults to the scope chosen in the palette
+   * @example
+   * editor.setColor('textColor', '#c92a2a');
+   * editor.setColor('tableBackground', '#fff3bf', 'row');
    */
   setColor(kind: RteColorKind, color: string | null, scope: RteTableScope = this.tableScope()): void {
     if (this.isDisabled() || this.sourceMode()) return;
@@ -463,8 +576,14 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   }
 
   /**
-   * Sets table borders: `width` in px (0 removes the lines) on the chosen `sides` of the selected
-   * cells, or of the whole table holding the caret. `color` defaults to the theme border color.
+   * Sets table borders on the chosen sides of the selected cells, or of the whole table holding
+   * the caret. Does nothing when the caret isn't in a table.
+   * @param width         line width in px; `0` hides the lines
+   * @param options.color any CSS color; defaults to the theme border color (`--nrte-border`)
+   * @param options.sides sides to change; omitted sides default to `true`
+   * @example
+   * // bottom line only, 2px red
+   * editor.setTableBorder(2, { color: '#c92a2a', sides: { top: false, left: false, right: false, inner: false } });
    */
   setTableBorder(width: number, options: { color?: string | null; sides?: Partial<RteBorderSides> } = {}): void {
     if (this.isDisabled() || this.sourceMode()) return;
@@ -500,7 +619,14 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     this.updateActiveStates();
   }
 
-  /** Runs a toolbar command programmatically. */
+  /**
+   * Runs a toolbar command, as if its button was clicked. Commands opening a popup (colors,
+   * borders) toggle it; `link` / `image` ask for the URL through {@link promptFn}.
+   * Ignored in read-only mode.
+   * @param command the command to run
+   * @returns resolves once the command is applied (after the URL prompt for `link` / `image`)
+   * @example await editor.execute('bold');
+   */
   async execute(command: RteCommand): Promise<void> {
     if (this.isDisabled()) return;
     if (command === 'source') {
@@ -550,18 +676,22 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   // ------------------------------------------------- ControlValueAccessor
 
+  /** Forms API (`ControlValueAccessor`): sets the HTML from the form control. */
   writeValue(value: string | null | undefined): void {
     this.value.set(value ?? '');
   }
 
+  /** Forms API (`ControlValueAccessor`): registers the callback notified of each change. */
   registerOnChange(fn: (value: string) => void): void {
     this.onChange = fn;
   }
 
+  /** Forms API (`ControlValueAccessor`): registers the callback notified when the editor loses focus. */
   registerOnTouched(fn: () => void): void {
     this.onTouched = fn;
   }
 
+  /** Forms API (`ControlValueAccessor`): a disabled control makes the editor read-only. */
   setDisabledState(isDisabled: boolean): void {
     this.formDisabled.set(isDisabled);
   }
@@ -626,6 +756,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
 
   protected onInput(event: Event): void {
     if (!this.internalEdit) this.clearCellSelection();
+    this.updateImageFrame();
     if ((event as InputEvent).inputType?.startsWith('history')) this.collapseRestoredBlock();
     this.syncFromEditor();
   }
@@ -761,6 +892,151 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       this.restoreSelection();
     }
     this.doc.execCommand('insertHTML', false, urls.map((url) => `<img src="${escapeHtml(url)}" alt="">`).join(''));
+    this.syncFromEditor();
+  }
+
+  // -------------------------------------------------------- image resizing
+
+  /** A click on an image selects it (so Delete / Ctrl+C act on it) and shows its resize handles. */
+  protected onContentClick(event: MouseEvent): void {
+    const img = event.target as HTMLElement;
+    if (img.localName !== 'img' || this.isDisabled() || !this.editable().nativeElement.contains(img)) return;
+    this.selectImage(img as HTMLImageElement);
+  }
+
+  private selectImage(img: HTMLImageElement): void {
+    const range = this.doc.createRange();
+    range.selectNode(img);
+    const sel = this.doc.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    this.savedRange = range.cloneRange();
+    this.selectedImage.set(img);
+    this.updateImageFrame();
+  }
+
+  /** True when the selection is exactly the selected image. */
+  private imageStillSelected(): boolean {
+    const img = this.selectedImage();
+    const sel = this.doc.getSelection();
+    if (!img?.isConnected || !sel?.rangeCount) return false;
+    const range = sel.getRangeAt(0);
+    return (
+      range.startContainer === img.parentNode &&
+      range.endContainer === img.parentNode &&
+      range.startContainer.childNodes[range.startOffset] === img &&
+      range.endOffset === range.startOffset + 1
+    );
+  }
+
+  private updateImageFrame(label?: string): void {
+    const img = this.selectedImage();
+    if (!img?.isConnected) {
+      this.selectedImage.set(null);
+      this.imageFrame.set(null);
+      return;
+    }
+    const box = this.root().nativeElement.getBoundingClientRect();
+    const content = this.editable().nativeElement.getBoundingClientRect();
+    const rect = img.getBoundingClientRect();
+    // scrolled out of the editable area
+    if (rect.bottom < content.top || rect.top > content.bottom) {
+      this.imageFrame.set(null);
+      return;
+    }
+    this.imageFrame.set({
+      top: rect.top - box.top,
+      left: rect.left - box.left,
+      width: rect.width,
+      height: rect.height,
+      label,
+    });
+  }
+
+  /**
+   * Dragging a corner handle resizes the image, keeping its proportions. The size is previewed
+   * live and written on release as a `width` attribute, in one undoable step.
+   */
+  protected onImageHandleDown(event: MouseEvent, corner: RteImageCorner): void {
+    const img = this.selectedImage();
+    if (event.button !== 0 || !img || this.isDisabled()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const start = img.getBoundingClientRect();
+    const ratio = start.height / start.width || 1;
+    const startX = event.clientX;
+    const original = { width: img.getAttribute('width'), style: img.getAttribute('style') };
+    // the image can't be wider than the block holding it
+    let parent = img.parentElement!;
+    while (parent !== this.editable().nativeElement && getComputedStyle(parent).display.startsWith('inline')) {
+      parent = parent.parentElement!;
+    }
+    const parentStyle = getComputedStyle(parent);
+    const maxWidth = Math.max(
+      MIN_IMAGE_WIDTH,
+      parent.clientWidth - parseFloat(parentStyle.paddingLeft) - parseFloat(parentStyle.paddingRight),
+    );
+    const sign = corner === 'ne' || corner === 'se' ? 1 : -1;
+    const widthAt = (x: number) =>
+      Math.round(Math.min(maxWidth, Math.max(MIN_IMAGE_WIDTH, start.width + sign * (x - startX))));
+
+    const move = (e: MouseEvent) => {
+      const width = widthAt(e.clientX);
+      img.style.width = `${width}px`;
+      img.style.height = 'auto';
+      this.updateImageFrame(`${width} × ${Math.round(width * ratio)}`);
+    };
+    const up = (e: MouseEvent) => {
+      this.doc.removeEventListener('mousemove', move);
+      this.doc.removeEventListener('mouseup', up);
+      const width = widthAt(e.clientX);
+      // put the image back as it was, so undo restores the original size
+      for (const [name, value] of Object.entries(original)) {
+        if (value === null) img.removeAttribute(name);
+        else img.setAttribute(name, value);
+      }
+      if (width === Math.round(start.width)) {
+        this.updateImageFrame();
+        return;
+      }
+      this.resizeImage(img, width);
+    };
+    this.doc.addEventListener('mousemove', move);
+    this.doc.addEventListener('mouseup', up);
+  }
+
+  /** Double-click on a handle: back to the image's natural size. */
+  protected resetImageSize(): void {
+    const img = this.selectedImage();
+    if (img && !this.isDisabled()) this.resizeImage(img, null);
+  }
+
+  /**
+   * Sets the width of an image (px, the height follows), or `null` for its natural size. The image
+   * is replaced through `insertHTML` so the change can be undone.
+   */
+  private resizeImage(img: HTMLImageElement, width: number | null): void {
+    const copy = img.cloneNode() as HTMLImageElement;
+    copy.removeAttribute('height');
+    copy.style.removeProperty('width');
+    copy.style.removeProperty('height');
+    if (!copy.getAttribute('style')) copy.removeAttribute('style');
+    if (width === null) copy.removeAttribute('width');
+    else copy.setAttribute('width', String(width));
+    if (copy.outerHTML === img.outerHTML) return;
+
+    const el = this.editable().nativeElement;
+    const existing = new Set(Array.from(el.querySelectorAll('img')));
+    if (this.doc.activeElement !== el) el.focus();
+    const range = this.doc.createRange();
+    range.selectNode(img);
+    const sel = this.doc.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    this.doc.execCommand('insertHTML', false, copy.outerHTML);
+    const next = Array.from(el.querySelectorAll('img')).find((i) => !existing.has(i));
+    if (next) this.selectImage(next);
+    else this.updateImageFrame();
     this.syncFromEditor();
   }
 
@@ -1021,6 +1297,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     const el = this.editable().nativeElement;
     if (!sel || sel.rangeCount === 0 || !el.contains(sel.anchorNode)) return;
     this.savedRange = sel.getRangeAt(0).cloneRange();
+    if (this.selectedImage() && !this.imageStillSelected()) this.selectedImage.set(null);
     this.updateActiveStates();
   }
 
@@ -1075,6 +1352,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   /** Places the floating table bar above the table holding the caret (below it if there's no room). */
   protected updateTableBar(): void {
     this.updateCellOverlay();
+    this.updateImageFrame();
     const table = this.closestCell()?.closest('table');
     if (!table) {
       this.tableBar.set(null);

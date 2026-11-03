@@ -8,14 +8,29 @@
  *   inline styles are reduced to a small set of harmless properties.
  */
 
+/** Options of {@link sanitizeHtml} and of the editor's `sanitizeOptions` input. */
 export interface RteSanitizeOptions {
-  /** Extra tags to allow (lower case). */
+  /**
+   * Extra tags to keep, besides the default ones (text formatting, headings, lists, links,
+   * images, tables…). Tags that can run code (`script`, `iframe`, `svg`…) are always removed.
+   * @example ['abbr', 'kbd']
+   */
   allowedTags?: string[];
-  /** Extra attributes to allow on every allowed tag (lower case). */
+  /**
+   * Extra attributes to keep on every allowed tag. Event handlers (`on*`) are always removed.
+   * @example ['data-id', 'id']
+   */
   allowedAttributes?: string[];
-  /** Extra CSS properties to keep in `style` attributes. */
+  /**
+   * Extra CSS properties to keep in `style` attributes. Values with `url()`, `expression()` or
+   * `javascript:` are always removed.
+   * @example ['font-size', 'font-family']
+   */
   allowedStyles?: string[];
-  /** Keep `class` attributes (dropped by default, pasted content is usually full of them). */
+  /**
+   * Keeps `class` attributes (dropped by default: pasted content is usually full of them).
+   * @default false
+   */
   keepClasses?: boolean;
 }
 
@@ -61,7 +76,14 @@ const ALLOWED_STYLES = new Set([
 const SAFE_URL = /^(?:https?:|mailto:|tel:|#|\/|\.{1,2}\/|[^:/?#]*(?:[/?#]|$))/i;
 const SAFE_DATA_IMAGE = /^data:image\/(?:png|gif|jpe?g|webp|bmp);base64,[a-z0-9+/=\s]+$/i;
 
-/** Returns true if the URL uses a safe protocol (http(s), mailto, tel, relative or anchor). */
+/**
+ * Tells whether a URL is safe for an `href` / `src`: http(s), mailto, tel, relative URLs and
+ * anchors are; `javascript:`, `vbscript:`, `data:` (by default)… are not.
+ * @param url            the URL to check
+ * @param allowDataImage also accept base64 `data:image/…` URLs (png, gif, jpeg, webp, bmp)
+ * @returns true if the URL can be used
+ * @example isSafeUrl('https://example.com'); // true
+ */
 export function isSafeUrl(url: string, allowDataImage = false): boolean {
   // strip whitespace and control characters browsers ignore (e.g. "java\tscript:")
   const clean = url.replace(/[\u0000- \u007f-\u009f]/g, '');
@@ -85,9 +107,13 @@ function cleanStyle(value: string, allowed: Set<string>): string {
 }
 
 /**
- * Sanitizes an HTML string and returns safe HTML.
- * @param html  untrusted HTML
- * @param doc   the Document to use for parsing (defaults to the global `document`)
+ * Sanitizes an HTML string and returns safe HTML: unknown tags are unwrapped, dangerous ones
+ * removed with their content, attributes, URLs and inline styles are filtered.
+ * @param html    untrusted HTML
+ * @param doc     the Document to use for parsing (defaults to the global `document`)
+ * @param options extra tags, attributes or styles to keep
+ * @returns the safe HTML (`''` for an empty input)
+ * @example sanitizeHtml('<p onclick="x()">Hi<script>alert(1)</script></p>'); // '<p>Hi</p>'
  */
 export function sanitizeHtml(html: string, doc: Document = document, options: RteSanitizeOptions = {}): string {
   if (!html) return '';
