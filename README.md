@@ -8,6 +8,47 @@ Lightweight **rich text editor for Angular** that takes **HTML as input** and em
 - Configurable toolbar, i18n labels (English + French included), HTML source view
 - Themeable with CSS variables, no dependencies besides Angular
 
+## Features
+
+**Text**
+- Bold, italic, underline, strikethrough, subscript, superscript
+- Text color and highlight palettes (configurable swatches, custom color picker, "none")
+- Paragraph, headings H1–H3, quote, code block, horizontal line
+- Alignment: left, center, right, justify
+- Clear formatting
+- Undo / redo (every edit below can be undone)
+
+**Lists**
+- Bulleted and numbered lists, nested with <kbd>Tab</kbd> / <kbd>Shift + Tab</kbd>
+- Mixed nesting: switching the type only changes the current level
+
+**Links**
+- Insert / edit (<kbd>Ctrl/⌘ + K</kbd>) and remove links, optional `target="_blank"`
+- Pluggable URL prompt (`promptFn`) to use your own dialog
+
+**Images**
+- Insert from a URL
+- Drag and drop from the desktop, paste from the clipboard (e.g. screenshots)
+- Pluggable upload (`imageUpload`), data URLs by default
+- Resize with corner handles (proportional, live size, double-click for the original size)
+
+**Tables**
+- Insert a 3×3 table, floating bar to add / delete rows and columns or the table
+- <kbd>Tab</kbd> / <kbd>Shift + Tab</kbd> move between cells, <kbd>Tab</kbd> in the last cell adds a row
+- Column widths by dragging the borders (double-click: automatic widths)
+- Cell selection by dragging or <kbd>Shift</kbd> + click: formatting, colors, borders and
+  <kbd>Delete</kbd> apply to the selected cells
+- Cell text and background colors on the cell, row, column or selection
+- Borders: sides (top, bottom, left, right, inside), width and color
+
+**Editor**
+- HTML source view
+- Sanitizer with configurable allow-list (`sanitizeOptions`), optional plain-text paste
+- Read-only mode, placeholder, min / max height, accessible labels
+- English and French labels, every text overridable
+- Public methods: `focus`, `getHtml`, `insertHtml`, `execute`, `setColor`, `setTableBorder`
+- JSDoc on the whole public API
+
 ## Installation
 
 ```bash
