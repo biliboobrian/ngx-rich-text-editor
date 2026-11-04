@@ -56,6 +56,12 @@ Lightweight **rich text editor for Angular** that takes **HTML as input** and em
 **Editor**
 - HTML source view
 - Sanitizer with configurable allow-list (`sanitizeOptions`), optional plain-text paste
+- Paste from Word, Excel, Google Docs / Sheets and other office suites: their style sheets are
+  converted to inline styles (bold, colors, highlight, cell borders and backgrounds…), column
+  widths are kept, Word and Google Docs lists become real nested lists
+- Copy / cut for Office: selected cells or a table selected alone go to the clipboard as an Excel
+  table (+ tab-separated text, line breaks kept in their cell), anything else as Word HTML with
+  visible table borders
 - Forms: `[(value)]`, `ngModel`, `[formControl]` / `formControlName`, or `[control]` (no forms
   directive needed)
 - Read-only mode, placeholder, min / max height, accessible labels

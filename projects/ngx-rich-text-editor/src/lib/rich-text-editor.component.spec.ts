@@ -517,6 +517,141 @@ describe('RichTextEditorComponent', () => {
     });
   });
 
+  describe('office clipboard', () => {
+    function paste(html: string): void {
+      const transfer = new DataTransfer();
+      transfer.setData('text/html', html);
+      transfer.setData('text/plain', 'x');
+      content.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
+    }
+
+    function copy(type: 'copy' | 'cut' = 'copy'): DataTransfer {
+      const transfer = new DataTransfer();
+      content.dispatchEvent(new ClipboardEvent(type, { clipboardData: transfer, bubbles: true, cancelable: true }));
+      return transfer;
+    }
+
+    beforeEach(() => setup());
+
+    it('pastes Excel cells with their class styles inlined', async () => {
+      await edit('<p>a</p>', 'p', true);
+      paste(
+        '<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><style><!--' +
+          'td {font-weight:400; mso-number-format:General;} .xl65 {font-weight:700; background:#FFFF00; mso-pattern:black none; text-align:general;}' +
+          '--></style></head><body><table><tr><td class=xl65>A</td><td>B</td></tr></table></body></html>',
+      );
+      await settle(fixture);
+      const td = content.querySelector('td')!;
+      expect(td.style.fontWeight).toBe('700');
+      expect(td.style.backgroundColor).toBe('rgb(255, 255, 0)');
+      expect(td.getAttribute('style')).not.toContain('general');
+      expect(content.querySelectorAll('td')[1].getAttribute('style')).toBeNull();
+    });
+
+    it('pastes Word list paragraphs as nested lists', async () => {
+      await edit('<p>a</p>', 'p', true);
+      const item = (level: number, marker: string, text: string) =>
+        `<p class=MsoListParagraph style='margin-left:36pt;mso-list:l0 level${level} lfo1'><!--[if !supportLists]-->` +
+        `<span><span style='mso-list:Ignore'>${marker}<span>&nbsp;&nbsp;</span></span></span><!--[endif]-->${text}<o:p></o:p></p>\n`;
+      paste(
+        '<html xmlns:w="urn:schemas-microsoft-com:office:word"><body>' +
+          item(1, '1.', 'One') + item(2, '·', 'Sub') + item(1, '2.', 'Two') +
+          `<p class=MsoNormal><span style='mso-highlight:yellow'>Lit</span></p></body></html>`,
+      );
+      await settle(fixture);
+      const ol = content.querySelector('ol')!;
+      expect(ol.children.length).toBe(2);
+      expect(ol.querySelector('li > ul > li')!.textContent).toBe('Sub');
+      expect(ol.textContent).not.toContain('1.');
+      expect(content.querySelector<HTMLElement>('span[style]')!.style.backgroundColor).toBe('yellow');
+    });
+
+    it('pastes Google Docs content', async () => {
+      await edit('<p>a</p>', 'p', true);
+      const span = (style: string, text: string) =>
+        `<span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;${style}font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">${text}</span>`;
+      const li = (level: number, text: string) =>
+        `<li dir="ltr" style="list-style-type:disc;font-size:11pt;" aria-level="${level}"><p dir="ltr" style="line-height:1.38;margin-top:0pt;margin-bottom:0pt;" role="presentation">${span('font-weight:400;font-style:normal;', text)}</p></li>`;
+      paste(
+        '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-1234-abcd">' +
+          `<p dir="ltr" style="line-height:1.38;margin-top:0pt;margin-bottom:0pt;">${span('font-weight:700;font-style:normal;', 'Bold')}${span('font-weight:400;font-style:italic;', 'Ital')}${span('font-weight:400;font-style:normal;', 'Plain')}</p>` +
+          `<ul style="margin-top:0;margin-bottom:0;padding-inline-start:48px;">${li(1, 'One')}<ul style="margin-top:0;">${li(2, 'Sub')}</ul>${li(1, 'Two')}</ul>` +
+          '</b>',
+      );
+      await settle(fixture);
+      expect(editor.value()).toBe(
+        '<p><b>Bold</b><i>Ital</i>Plain</p><ul><li>One<ul><li>Sub</li></ul></li><li>Two</li></ul><p>a</p>',
+      );
+    });
+
+    it('pastes Google Sheets cells with their column widths', async () => {
+      await edit('<p>a</p>', 'p', true);
+      paste(
+        '<google-sheets-html-origin><style type="text/css"><!--td {border: 1px solid #cccccc;}br {mso-data-placement:same-cell;}--></style>' +
+          '<table xmlns="http://www.w3.org/1999/xhtml" cellspacing="0" cellpadding="0" dir="ltr" border="1" style="table-layout:fixed;font-size:10pt;font-family:Arial;width:0px;border-collapse:collapse;border:none" data-sheets-root="1">' +
+          '<colgroup><col width="100"/><col width="120"/></colgroup><tbody><tr style="height:21px;">' +
+          '<td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;font-weight:bold;color:#000000;">A</td>' +
+          '<td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;background-color:#ffff00;" data-sheets-value="{&quot;1&quot;:3,&quot;3&quot;:1}">1</td>' +
+          '</tr></tbody></table></google-sheets-html-origin>',
+      );
+      await settle(fixture);
+      const table = content.querySelector('table')!;
+      expect(table.style.width).toBe('220px');
+      expect(Array.from(table.querySelectorAll('col'), (c) => c.style.width)).toEqual(['100px', '120px']);
+      const cells = table.querySelectorAll('td');
+      expect(cells[0].style.fontWeight).toBe('bold');
+      expect(cells[0].style.color).toBe('');
+      expect(cells[1].style.backgroundColor).toBe('rgb(255, 255, 0)');
+      expect(table.getBoundingClientRect().width).toBeGreaterThan(200);
+    });
+
+    it('copies selected cells for Excel', async () => {
+      await edit('<table><tbody><tr><td>a</td><td><p>b</p><p>c</p></td></tr><tr><td>d</td><td>e</td></tr></tbody></table>');
+      const cells = content.querySelectorAll('td');
+      const range = document.createRange();
+      range.setStart(cells[0].firstChild!, 0);
+      range.setEnd(cells[1].lastChild!.firstChild!, 1);
+      document.getSelection()!.removeAllRanges();
+      document.getSelection()!.addRange(range);
+      const data = copy();
+      const html = data.getData('text/html');
+      expect(html).toContain('Excel.Sheet');
+      expect(html).toContain('mso-data-placement');
+      expect(html).toContain('b<br>c');
+      expect(html).not.toContain('>d<');
+      expect(data.getData('text/plain')).toBe('a\t"b\nc"');
+    });
+
+    it('copies a whole table selected alone for Excel', async () => {
+      await edit('<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>');
+      select(content);
+      const data = copy();
+      expect(data.getData('text/html')).toContain('Excel.Sheet');
+      expect(data.getData('text/plain')).toBe('a\tb');
+    });
+
+    it('copies text for Word, keeping its formatting', async () => {
+      await edit('<p><b>bold <span data-comment="c1">text</span></b></p><table><tbody><tr><td>x</td></tr></tbody></table>');
+      select(content.querySelector('b')!);
+      let html = copy().getData('text/html');
+      expect(html).toContain('Word.Document');
+      expect(html).toContain('<b>bold text</b>');
+      select(content);
+      html = copy().getData('text/html');
+      expect(html).toContain('Word.Document');
+      expect(html).toContain('border: 1px solid');
+    });
+
+    it('cut removes the copied cells content', async () => {
+      await edit('<p>keep</p><p>gone</p>');
+      select(content.querySelectorAll('p')[1]);
+      const data = copy('cut');
+      await settle(fixture);
+      expect(data.getData('text/plain')).toBe('gone');
+      expect(editor.value()).not.toContain('gone');
+    });
+  });
+
   describe('image resizing', () => {
     let img: HTMLImageElement;
     const frame = () => el.querySelector<HTMLElement>('.nrte__image-frame');

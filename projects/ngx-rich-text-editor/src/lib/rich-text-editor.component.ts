@@ -21,6 +21,7 @@ import {
 import { DOCUMENT, NgTemplateOutlet, isPlatformBrowser } from '@angular/common';
 import { AbstractControl, ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 import { RteSanitizeOptions, isSafeUrl, sanitizeHtml } from './sanitize';
+import { RteClipboardPayload, excelClipboard, normalizePastedHtml, wordClipboard } from './clipboard';
 import {
   RTE_BACKGROUND_COLORS,
   RTE_DEFAULT_LABELS,
@@ -1512,11 +1513,101 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       return;
     }
     if (html && !this.pastePlainText()) {
-      this.doc.execCommand('insertHTML', false, this.clean(html));
+      // Word / Excel keep their formatting in a style sheet and `mso-*` styles: inline it first
+      this.doc.execCommand('insertHTML', false, this.clean(normalizePastedHtml(html, this.doc)));
     } else {
       this.doc.execCommand('insertText', false, data.getData('text/plain'));
     }
     this.syncFromEditor();
+  }
+
+  /** Copies the selection in the format Excel (table / cells only) or Word (anything else) imports best. */
+  protected onCopy(event: ClipboardEvent): void {
+    this.writeClipboard(event);
+  }
+
+  protected onCut(event: ClipboardEvent): void {
+    if (!this.writeClipboard(event) || this.isDisabled()) return;
+    if (this.cellSelection()) {
+      this.styleCells('selection', (cell) => (cell.innerHTML = '<br>'));
+      this.clearCellSelection();
+    } else {
+      this.doc.execCommand('delete');
+    }
+    this.syncFromEditor();
+  }
+
+  private writeClipboard(event: ClipboardEvent): boolean {
+    const data = event.clipboardData;
+    const payload = data && this.clipboardPayload();
+    if (!data || !payload) return false;
+    event.preventDefault();
+    data.setData('text/html', payload.html);
+    data.setData('text/plain', payload.text);
+    return true;
+  }
+
+  /** Excel content for selected cells or a table selected alone, Word content otherwise. */
+  private clipboardPayload(): RteClipboardPayload | null {
+    const editor = this.editable().nativeElement;
+    const cellSel = this.cellSelection();
+    const rect = this.selectionRect();
+    if (cellSel && rect) {
+      const [r1, r2, c1, c2] = rect;
+      const rows: HTMLTableCellElement[][] = [];
+      for (let r = r1; r <= r2; r++) {
+        const cells = Array.from(cellSel.table.rows[r]?.cells ?? []).slice(c1, c2 + 1);
+        if (cells.length) rows.push(cells);
+      }
+      if (rows.length) return excelClipboard(cellSel.table, rows, this.doc);
+    }
+
+    const sel = this.doc.getSelection();
+    if (!sel?.rangeCount || sel.isCollapsed) return null;
+    const range = sel.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) return null;
+
+    // selection across several cells of one table
+    const table = this.closestInEditor('table', range.commonAncestorContainer);
+    if (table) {
+      const cellOf = (node: Node) => this.closestInEditor('td', node) ?? this.closestInEditor('th', node);
+      if (cellOf(range.startContainer) !== cellOf(range.endContainer)) {
+        const rows = Array.from(table.rows)
+          .map((row) => Array.from(row.cells).filter((cell) => range.intersectsNode(cell)))
+          .filter((row) => row.length);
+        if (rows.length) return excelClipboard(table, rows, this.doc);
+      }
+    }
+
+    // a whole table selected alone
+    const fragment = range.cloneContents();
+    const meaningful = Array.from(fragment.childNodes).filter((node) =>
+      node.nodeType === 1
+        ? !!node.textContent?.trim() || !!(node as Element).querySelector('img, hr, table') || (node as Element).localName === 'table'
+        : node.nodeType === 3 && !!node.textContent?.trim(),
+    );
+    if (meaningful.length === 1 && (meaningful[0] as Element).localName === 'table') {
+      const originals = Array.from(editor.querySelectorAll('table')).filter(
+        (t) => range.intersectsNode(t) && !t.parentElement?.closest('table'),
+      );
+      if (originals.length === 1) {
+        const rows = Array.from(originals[0].rows, (row) => Array.from(row.cells)).filter((row) => row.length);
+        return excelClipboard(originals[0], rows, this.doc);
+      }
+    }
+
+    // text: keep the formatting of the ancestors (bold, heading, list…) up to the cell / editor
+    let content: Node = fragment;
+    const start = range.commonAncestorContainer;
+    for (let node: Node | null = start.nodeType === 1 ? start : start.parentNode; node && node !== editor; node = node.parentNode) {
+      if (/^(td|th)$/.test((node as Element).localName)) break;
+      const shell = node.cloneNode(false);
+      shell.appendChild(content);
+      content = shell;
+    }
+    const container = this.doc.createElement('div');
+    container.appendChild(content);
+    return wordClipboard(container, sel.toString());
   }
 
   protected onKeydown(event: KeyboardEvent): void {
