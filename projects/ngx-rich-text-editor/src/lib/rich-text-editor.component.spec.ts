@@ -566,6 +566,20 @@ describe('RichTextEditorComponent', () => {
       expect(content.querySelector<HTMLElement>('span[style]')!.style.backgroundColor).toBe('yellow');
     });
 
+    it('pasting over the whole content does not inherit the first heading', async () => {
+      await edit('<h2>Bonjour</h2><p>Ceci est un <strong>éditeur</strong>.</p>');
+      select(content);
+      paste('<p>Hello</p><p>World</p>');
+      await settle(fixture);
+      expect(editor.value()).toBe('<p>Hello</p><p>World</p>');
+
+      await edit('<h2>Bonjour</h2><p>x</p>');
+      select(content);
+      paste('<span>Hello</span>');
+      await settle(fixture);
+      expect(editor.value()).toBe('<p>Hello</p>');
+    });
+
     it('pastes Google Docs content', async () => {
       await edit('<p>a</p>', 'p', true);
       const span = (style: string, text: string) =>

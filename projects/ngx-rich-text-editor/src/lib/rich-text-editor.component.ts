@@ -1514,11 +1514,34 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     }
     if (html && !this.pastePlainText()) {
       // Word / Excel keep their formatting in a style sheet and `mso-*` styles: inline it first
-      this.doc.execCommand('insertHTML', false, this.clean(normalizePastedHtml(html, this.doc)));
+      const clean = this.clean(normalizePastedHtml(html, this.doc));
+      this.prepareHtmlPaste(/<(?:p|div|h[1-6]|ul|ol|li|table|blockquote|pre|hr)[\s>]/i.test(clean));
+      this.doc.execCommand('insertHTML', false, clean);
     } else {
       this.doc.execCommand('insertText', false, data.getData('text/plain'));
     }
     this.syncFromEditor();
+  }
+
+  /**
+   * Pasted HTML must not take the style of the block it replaces: with the whole content selected,
+   * the browser would put it inside the first heading (`<h2><p>…</p></h2>`, all bold and large).
+   * The selection is deleted first; a heading / code block left empty by it (or receiving blocks)
+   * becomes a paragraph.
+   */
+  private prepareHtmlPaste(hasBlocks: boolean): void {
+    const sel = this.doc.getSelection();
+    if (!sel?.rangeCount) return;
+    const replaced = !sel.isCollapsed;
+    if (replaced) this.doc.execCommand('delete');
+    const editor = this.editable().nativeElement;
+    let block: Node | null = sel.anchorNode;
+    while (block && block !== editor && !/^(h[1-6]|pre|p|div|li|td|th|blockquote)$/.test((block as Element).localName ?? '')) {
+      block = block.parentNode;
+    }
+    if (!block || block === editor || !/^(h[1-6]|pre)$/.test((block as Element).localName)) return;
+    const empty = !block.textContent?.replace(/​/g, '').trim() && !(block as Element).querySelector('img, table, hr');
+    if (empty && (replaced || hasBlocks)) this.doc.execCommand('formatBlock', false, 'p');
   }
 
   /** Copies the selection in the format Excel (table / cells only) or Word (anything else) imports best. */
