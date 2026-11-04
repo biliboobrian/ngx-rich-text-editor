@@ -40,7 +40,7 @@ export interface RteSanitizeOptions {
   allowedAttributes?: string[];
   /**
    * Extra CSS properties to keep in `style` attributes (by default: alignment, font weight and
-   * style, text decoration, colors, indentation, table width and borders). Case-insensitive.
+   * style, text decoration, colors, indentation, table width / height and borders). Case-insensitive.
    * Values with `url()`, `expression()` or `javascript:` are always removed.
    *
    * @default []
@@ -91,7 +91,7 @@ const ALLOWED_STYLES = new Set([
   'text-align', 'font-weight', 'font-style', 'text-decoration', 'text-decoration-line',
   'color', 'background-color', 'margin-left', 'padding-left',
   // table layout and borders
-  'width', 'table-layout', 'border', 'border-width', 'border-style', 'border-color',
+  'width', 'height', 'table-layout', 'border', 'border-width', 'border-style', 'border-color',
   ...['top', 'right', 'bottom', 'left'].flatMap((side) =>
     ['', '-width', '-style', '-color'].map((part) => `border-${side}${part}`),
   ),

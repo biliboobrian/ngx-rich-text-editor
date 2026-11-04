@@ -972,6 +972,82 @@ describe('RichTextEditorComponent', () => {
       });
     });
 
+    describe('row resizing', () => {
+      const fixed = '<table><tbody><tr style="height: 60px"><td>a</td></tr><tr style="height: 60px"><td>b</td></tr>'
+        + '<tr style="height: 60px"><td>c</td></tr></tbody></table><p>after</p>';
+      const heights = () => rows().map((tr) => tr.style.height);
+      const rowRect = (r: number) => rows()[r].cells[0].getBoundingClientRect();
+      const tableRect = () => content.querySelector('table')!.getBoundingClientRect();
+
+      /** Drags the border at viewport `y` (in the middle of the first column) by `dy`. */
+      async function dragBorder(y: number, dy: number): Promise<void> {
+        const cell = rows()[0].cells[0].getBoundingClientRect();
+        const x = cell.left + cell.width / 2;
+        const target = document.elementFromPoint(x, y)!;
+        mouse(target, 'mousedown', { clientX: x, clientY: y });
+        mouse(document, 'mousemove', { clientX: x, clientY: y + dy });
+        mouse(document, 'mouseup', { clientX: x, clientY: y + dy });
+        await settle(fixture);
+      }
+
+      it('an inner border moves height between its two rows, the table keeps its height', async () => {
+        await edit(fixed);
+        const before = tableRect().height;
+        await dragBorder(rowRect(0).bottom - 1, 10);
+        expect(heights()).toEqual(['70px', '50px', '60px']);
+        expect(tableRect().height).toBeCloseTo(before, 0);
+        // once the row below is down to its content, the table grows
+        await dragBorder(rowRect(0).bottom - 1, 100);
+        expect(heights()[0]).toBe('170px');
+        expect(parseFloat(heights()[1])).toBeLessThan(50);
+        expect(tableRect().height).toBeGreaterThan(before + 50);
+      });
+
+      it('the top border of a cell is its previous row border', async () => {
+        await edit(fixed);
+        await dragBorder(rowRect(1).top + 1, 10);
+        expect(heights()).toEqual(['70px', '50px', '60px']);
+      });
+
+      it('the outer bottom / top borders resize the table through its last / first row', async () => {
+        await edit(fixed);
+        await dragBorder(tableRect().bottom - 1, 25);
+        expect(heights()).toEqual(['60px', '60px', '85px']);
+        await dragBorder(tableRect().top + 1, -10);
+        expect(heights()).toEqual(['70px', '60px', '85px']);
+        await dragBorder(tableRect().bottom - 1, -500);
+        const last = parseFloat(heights()[2]);
+        expect(last).toBeGreaterThanOrEqual(16);
+        expect(last).toBeLessThan(50);
+        expect(rows()[2].getBoundingClientRect().height).toBeCloseTo(last, 0);
+      });
+
+      it('fixes automatic heights and double-click restores them', async () => {
+        await edit('<table><tbody><tr><td>a</td></tr><tr><td>b</td></tr></tbody></table><p>after</p>');
+        await dragBorder(rowRect(0).bottom - 1, 20);
+        expect(heights().every((h) => /px$/.test(h))).toBeTrue();
+        expect(editor.value()).toContain('height:');
+        const y = rowRect(0).bottom - 1;
+        const cell = rowRect(0);
+        mouse(document.elementFromPoint(cell.left + cell.width / 2, y)!, 'dblclick', { clientX: cell.left + cell.width / 2, clientY: y });
+        await settle(fixture);
+        expect(heights()).toEqual(['', '']);
+      });
+
+      it('shows the row resize cursor, not with hide: rowResize', async () => {
+        await edit(fixed);
+        const cell = rowRect(0);
+        mouse(rows()[0].cells[0], 'mousemove', { clientX: cell.left + cell.width / 2, clientY: cell.bottom - 1 });
+        await settle(fixture);
+        expect(content.classList).toContain('nrte__content--row-resize');
+        fixture.componentRef.setInput('hide', ['rowResize']);
+        await settle(fixture);
+        mouse(rows()[0].cells[0], 'mousemove', { clientX: cell.left + cell.width / 2, clientY: cell.bottom - 1 });
+        await settle(fixture);
+        expect(content.classList).not.toContain('nrte__content--row-resize');
+      });
+    });
+
     it('Shift+click selects a rectangle of cells that formatting applies to', async () => {
       await edit('<table><tbody><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></tbody></table>', 'td', true);
       const target = rows()[1].cells[0].getBoundingClientRect();

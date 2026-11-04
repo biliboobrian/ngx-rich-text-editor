@@ -463,6 +463,8 @@ export function excelClipboard(source: HTMLTableElement, rows: HTMLTableCellElem
   const tbody = table.appendChild(doc.createElement('tbody'));
   for (const row of rows) {
     const tr = tbody.appendChild(doc.createElement('tr'));
+    const height = (row[0]?.parentElement as HTMLTableRowElement | null)?.style.height;
+    if (height) tr.style.height = height;
     for (const cell of row) {
       const copy = cell.cloneNode(true) as HTMLTableCellElement;
       flattenCell(copy);

@@ -42,6 +42,8 @@ Lightweight **rich text editor for Angular** that takes **HTML as input** and em
 - <kbd>Tab</kbd> / <kbd>Shift + Tab</kbd> move between cells, <kbd>Tab</kbd> in the last cell adds a row
 - Column widths by dragging the inner borders (the table keeps its width), table width by dragging
   its outer left / right borders (double-click: automatic widths)
+- Row heights the same way: drag the inner borders (the table keeps its height), table height by
+  dragging its outer top / bottom borders (double-click: automatic heights)
 - Cell selection by dragging or <kbd>Shift</kbd> + click: formatting, colors, borders and
   <kbd>Delete</kbd> apply to the selected cells
 - Cell text and background colors on the cell, row, column or selection
@@ -195,6 +197,10 @@ row / column / delete commands (`RTE_TABLE_TOOLBAR`), plus table formatting:
   table keeps its width); drag the outer left / right border to resize the table (through its first /
   last column). Double-click a border to go back to automatic widths (stored as `<colgroup>` +
   `table-layout: fixed`);
+- **row heights**: the same with the row borders. An inner border shares the height between its two
+  rows (once the row below is down to its content, the table gets higher); the outer top / bottom
+  borders resize the table through its first / last row. A row stops at the height of its content.
+  Double-click a border to go back to automatic heights (stored as `<tr style="height">`);
 - **text / background color** of the current cell, row or column (`tableTextColor`, `tableBackground`);
 - **borders** (`tableBorder`) of the selected cells, or of the whole table: pick the sides — top,
   bottom, left, right edges and/or the inside lines, independently — then a width (none, 1, 2,
@@ -314,6 +320,7 @@ bars (with the separators left alone) and their keyboard shortcut and `execute()
 | `imageMove`     | moving an image by dragging it |
 | `imageDrop`     | inserting dropped / pasted image files (hiding `image` does it too) |
 | `columnResize`  | resizing table columns from their borders |
+| `rowResize`     | resizing table rows from their borders |
 | `cellSelection` | selecting table cells (drag, Shift+click) |
 | `linkOpen`      | "open link" button and <kbd>Ctrl/⌘ + click</kbd> |
 | `tableToolbar`  | the floating table bar |

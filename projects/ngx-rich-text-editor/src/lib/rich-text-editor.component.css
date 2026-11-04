@@ -296,6 +296,21 @@
   pointer-events: none;
 }
 
+.nrte__content--row-resize,
+.nrte__content--row-resize td,
+.nrte__content--row-resize th {
+  cursor: row-resize;
+}
+
+.nrte__row-guide {
+  position: absolute;
+  z-index: 1;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--nrte-accent);
+  pointer-events: none;
+}
+
 /* "Open link" button at the end of the link holding the caret */
 .nrte__link-open {
   position: absolute;

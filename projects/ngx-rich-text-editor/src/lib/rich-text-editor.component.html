@@ -164,6 +164,10 @@
     <div class="nrte__col-guide" [style.left.px]="guide.left" [style.top.px]="guide.top" [style.height.px]="guide.height"></div>
   }
 
+  @if (rowGuide(); as guide) {
+    <div class="nrte__row-guide" [style.left.px]="guide.left" [style.top.px]="guide.top" [style.width.px]="guide.width"></div>
+  }
+
   @if (focused() && tableItems().length && tableBar(); as bar) {
     <div
       class="nrte__toolbar nrte__tablebar"
@@ -188,6 +192,7 @@
       class="nrte__content"
       [class.nrte__content--empty]="isEmpty()"
       [class.nrte__content--col-resize]="colResizeHover() || !!colGuide()"
+      [class.nrte__content--row-resize]="rowResizeHover() || !!rowGuide()"
       [class.nrte__content--link-hover]="linkHover()"
       [class.nrte__content--cell-select]="cellSelecting()"
       [class.nrte__content--drop]="dropActive()"

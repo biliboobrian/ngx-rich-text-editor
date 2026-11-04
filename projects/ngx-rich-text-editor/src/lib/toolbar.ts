@@ -129,6 +129,7 @@ export type RteToolbarItem = RteCommand | '|';
  * | `imageMove`     | moving an image by dragging it elsewhere in the text       |
  * | `imageDrop`     | inserting dropped / pasted image files                     |
  * | `columnResize`  | resizing table columns from their borders                  |
+ * | `rowResize`     | resizing table rows from their borders                     |
  * | `cellSelection` | selecting table cells (drag, Shift+click)                  |
  * | `linkOpen`      | "open link" button and <kbd>Ctrl/⌘ + click</kbd> on links  |
  * | `tableToolbar`  | the floating table bar                                     |
@@ -148,6 +149,11 @@ export type RteFeature =
   | 'imageDrop'
   /** Resizing table columns by dragging their borders. */
   | 'columnResize'
+  /**
+   * Resizing table rows by dragging their borders.
+   * @since 0.7.0
+   */
+  | 'rowResize'
   /** Selecting a rectangle of table cells (drag or Shift+click). */
   | 'cellSelection'
   /** "Open link" button and Ctrl/⌘ + click on links. */

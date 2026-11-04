@@ -185,6 +185,9 @@ const BORDER_WIDTHS = [0, 1, 2, 3];
 /** Narrowest width a column can be dragged to (px). */
 const MIN_COL_WIDTH = 30;
 
+/** Lowest height a row can be dragged to (px), even when its content is lower. */
+const MIN_ROW_HEIGHT = 16;
+
 /** Width of the comment bubble (px). */
 const COMMENT_BUBBLE_WIDTH = 300;
 
@@ -271,6 +274,40 @@ function caretPoint(root: Node, position: number): [Node, number] {
 function columnWidths(table: HTMLTableElement): number[] | null {
   const group = Array.from(table.children).find((n) => n.localName === 'colgroup');
   return group ? Array.from(group.children, (col) => parseFloat((col as HTMLElement).style.width) || 100) : null;
+}
+
+/** Rendered heights of the rows. */
+function measureRows(table: HTMLTableElement): number[] {
+  return Array.from(table.rows, (row) => row.getBoundingClientRect().height);
+}
+
+/** Lowest height of each row: the height of its content (measured with a 1px height, then restored). */
+function minRowHeights(table: HTMLTableElement): number[] {
+  return Array.from(table.rows, (row) => {
+    const saved = row.style.height;
+    row.style.height = '1px';
+    const min = row.getBoundingClientRect().height;
+    row.style.height = saved;
+    if (!row.getAttribute('style')) row.removeAttribute('style');
+    return Math.max(MIN_ROW_HEIGHT, min);
+  });
+}
+
+/** Tells whether a row of the table has a fixed height. */
+function hasRowHeights(table: HTMLTableElement): boolean {
+  return Array.from(table.rows).some((row) => !!row.style.height);
+}
+
+/**
+ * Sets the row heights (`<tr style="height">`, a minimum: content can make a row taller); `null`
+ * restores automatic heights.
+ */
+function setRowHeights(table: HTMLTableElement, heights: number[] | null): void {
+  Array.from(table.rows).forEach((row, i) => {
+    if (heights?.[i] !== undefined) row.style.height = `${Math.round(heights[i])}px`;
+    else row.style.removeProperty('height');
+    if (!row.getAttribute('style')) row.removeAttribute('style');
+  });
 }
 
 /** Rendered widths of the columns, read on the row with the most cells. */
@@ -490,6 +527,7 @@ export class RichTextEditorComponent implements ControlValueAccessor {
    * | `imageMove`     | moving an image by dragging it                             |
    * | `imageDrop`     | inserting dropped / pasted image files                     |
    * | `columnResize`  | resizing table columns from their borders                  |
+   * | `rowResize`     | resizing table rows from their borders                     |
    * | `cellSelection` | selecting table cells (drag, Shift+click)                  |
    * | `linkOpen`      | "open link" button and <kbd>Ctrl/⌘ + click</kbd> on links  |
    * | `tableToolbar`  | the floating table bar                                     |
@@ -843,6 +881,8 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   protected readonly borderColor = signal<string | null>(null);
   /** Pointer over a column border: shows the resize cursor. */
   protected readonly colResizeHover = signal(false);
+  /** Pointer over a row border: shows the resize cursor. */
+  protected readonly rowResizeHover = signal(false);
   /** Button opening the link that holds the caret, placed at the end of the link. */
   protected readonly linkBubble = signal<{ href: string; top: number; left: number } | null>(null);
   /** Pointer over a link with Ctrl / ⌘ held. */
@@ -890,6 +930,8 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   protected readonly openComments = computed(() => this.comments().filter((c) => !c.resolved).length);
   /** Vertical guide shown while a column border is dragged. */
   protected readonly colGuide = signal<{ left: number; top: number; height: number } | null>(null);
+  /** Horizontal guide shown while a row border is dragged. */
+  protected readonly rowGuide = signal<{ left: number; top: number; width: number } | null>(null);
   /** Image selected by a click, shown with resize handles. */
   private readonly selectedImage = signal<HTMLImageElement | null>(null);
   /** Frame drawn around the selected image; `label` shows the size while resizing. */
@@ -2057,7 +2099,11 @@ export class RichTextEditorComponent implements ControlValueAccessor {
   // ------------------------------------------------------- column resizing
 
   protected onContentMouseMove(event: MouseEvent): void {
-    if (!this.colGuide()) this.colResizeHover.set(!!this.resizeTarget(event));
+    if (!this.colGuide() && !this.rowGuide()) {
+      const col = !!this.resizeTarget(event);
+      this.colResizeHover.set(col);
+      this.rowResizeHover.set(!col && !!this.rowResizeTarget(event));
+    }
     // pointer cursor on links while Ctrl / ⌘ is held: they can be followed
     const ctrl = event.ctrlKey || event.metaKey;
     this.linkHover.set(
@@ -2076,7 +2122,9 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     if (event.button !== 0) return;
     const target = this.resizeTarget(event);
     if (!target) {
-      this.startCellSelection(event);
+      const rowTarget = this.rowResizeTarget(event);
+      if (rowTarget) this.startRowResize(event, rowTarget);
+      else this.startCellSelection(event);
       return;
     }
     event.preventDefault();
@@ -2113,6 +2161,60 @@ export class RichTextEditorComponent implements ControlValueAccessor {
       const next = widthsAt(e.clientX);
       if (next.every((w, i) => w === widths[i])) return;
       this.rewriteTable(() => ({ widths: next }), table);
+      this.syncFromEditor();
+      this.updateActiveStates();
+    };
+    move(event);
+    this.doc.addEventListener('mousemove', move);
+    this.doc.addEventListener('mouseup', up);
+  }
+
+  /**
+   * Dragging a row border, like a column border: an inner border moves height between its two rows
+   * (the table keeps its height) and, once the row below is down to its content, makes the table
+   * higher; the outer top / bottom borders resize the table, through its first / last row. A row
+   * stops at the height of its content.
+   */
+  private startRowResize(
+    event: MouseEvent,
+    target: { table: HTMLTableElement; row: number; edge: 'top' | 'bottom' | 'inner' },
+  ): void {
+    event.preventDefault();
+    const { table } = target;
+    const heights = measureRows(table);
+    const mins = minRowHeights(table);
+    const last = heights.length - 1;
+    // an inner border without a row after it behaves like the outer one
+    const edge = target.edge === 'inner' && target.row >= last ? 'bottom' : target.edge;
+    const row = edge === 'bottom' ? last : edge === 'top' ? 0 : target.row;
+    const startY = event.clientY;
+    const heightsAt = (y: number): number[] => {
+      const next = [...heights];
+      const dy = y - startY;
+      if (edge === 'inner') {
+        // the row below gives (or gets) the height; past its content height, the table grows
+        const shift = Math.max(dy, mins[row] - heights[row]);
+        next[row] += shift;
+        next[row + 1] -= Math.min(shift, heights[row + 1] - mins[row + 1]);
+      } else {
+        next[row] = Math.max(mins[row], heights[row] + (edge === 'top' ? -dy : dy));
+      }
+      return next;
+    };
+    const move = (e: MouseEvent) => {
+      const box = this.root().nativeElement.getBoundingClientRect();
+      const rect = table.getBoundingClientRect();
+      const change = heightsAt(e.clientY)[row] - heights[row];
+      const y = startY + (edge === 'top' ? -change : change);
+      this.rowGuide.set({ top: y - box.top, left: rect.left - box.left, width: rect.width });
+    };
+    const up = (e: MouseEvent) => {
+      this.doc.removeEventListener('mousemove', move);
+      this.doc.removeEventListener('mouseup', up);
+      this.rowGuide.set(null);
+      const next = heightsAt(e.clientY);
+      if (next.every((h, i) => h === heights[i])) return;
+      this.rewriteTable((copy) => setRowHeights(copy, next), table);
       this.syncFromEditor();
       this.updateActiveStates();
     };
@@ -2237,14 +2339,40 @@ export class RichTextEditorComponent implements ControlValueAccessor {
     });
   }
 
-  /** Double-click on a column border: back to automatic column widths. */
+  /** Double-click on a column / row border: back to automatic column widths / row heights. */
   protected onContentDblClick(event: MouseEvent): void {
     const target = this.resizeTarget(event);
-    if (!target || !columnWidths(target.table)) return;
-    event.preventDefault();
-    this.rewriteTable(() => ({ widths: null }), target.table);
+    if (target) {
+      if (!columnWidths(target.table)) return;
+      event.preventDefault();
+      this.rewriteTable(() => ({ widths: null }), target.table);
+    } else {
+      const rowTarget = this.rowResizeTarget(event);
+      if (!rowTarget || !hasRowHeights(rowTarget.table)) return;
+      event.preventDefault();
+      this.rewriteTable((copy) => setRowHeights(copy, null), rowTarget.table);
+    }
     this.syncFromEditor();
     this.updateActiveStates();
+  }
+
+  /** Row border under the pointer: an outer edge of the table, or the inner border below row `row`. */
+  private rowResizeTarget(
+    event: MouseEvent,
+  ): { table: HTMLTableElement; row: number; edge: 'top' | 'bottom' | 'inner' } | null {
+    if (this.isDisabled() || this.isHidden('rowResize')) return null;
+    const cell = (event.target as Element).closest?.('td, th') as HTMLTableCellElement | null;
+    if (!cell || !this.editable().nativeElement.contains(cell)) return null;
+    const table = cell.closest('table')!;
+    const outer = table.getBoundingClientRect();
+    const rect = cell.getBoundingClientRect();
+    const rowIndex = (cell.parentElement as HTMLTableRowElement).rowIndex;
+    const y = event.clientY;
+    if (y >= outer.bottom - 5) return { table, row: -1, edge: 'bottom' };
+    if (y <= outer.top + 5) return { table, row: 0, edge: 'top' };
+    if (y >= rect.bottom - 5) return { table, row: rowIndex + cell.rowSpan - 1, edge: 'inner' };
+    if (y <= rect.top + 5 && rowIndex > 0) return { table, row: rowIndex - 1, edge: 'inner' };
+    return null;
   }
 
   /**
@@ -2798,6 +2926,8 @@ export class RichTextEditorComponent implements ControlValueAccessor {
         case 'tableRowAbove':
         case 'tableRowBelow': {
           const tr = this.doc.createElement('tr');
+          // a row with a fixed height gets a new row as high
+          if (rows[r].style.height) tr.style.height = rows[r].style.height;
           tr.append(...Array.from(rows[r].cells, (ref) => this.emptyCell(ref)));
           rows[r].insertAdjacentElement(command === 'tableRowAbove' ? 'beforebegin' : 'afterend', tr);
           return command === 'tableRowAbove' ? [r + 1, c, true] : undefined;
